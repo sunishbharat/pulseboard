@@ -1,0 +1,231 @@
+[project]
+name = "pulseboard"
+version = "0.1.0"
+description = "MCP server for project and program management reporting from Jira boards."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "sunishbharat" }]
+keywords = ["mcp", "jira", "project-management", "scheduling", "forecasting"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "alembic>=1.13,<2",
+    "anyio>=4,<5",
+    "atlassian-python-api>=5,<6",
+    "cachetools>=7,<8",
+    "fastmcp>=4.0,<5",
+    "holidays==0.107",
+    "jinja2>=3.1,<4",
+    "keyring>=25,<26",
+    "networkx>=3.3,<4",
+    "numpy>=2,<3",
+    "openpyxl>=3.1,<4",
+    "opentelemetry-api>=1.27,<2",
+    "ortools==9.15.6755",
+    "pandas>=2.2,<3",
+    "platformdirs>=4,<5",
+    "plotly>=6.1,<7",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5,<3",
+    "pyjobshop==0.0.9",
+    "pyrate-limiter>=4,<5",
+    "requests-cache>=1.2,<2",
+    "sqlalchemy>=2,<3",
+    "structlog>=26,<27",
+    "tenacity>=9,<10",
+    "tomlkit>=0.13,<1",
+]
+
+[project.scripts]
+pulseboard = "pulseboard.cli:main"
+
+[project.urls]
+Repository = "https://github.com/sunishbharat/pulseboard"
+Changelog = "https://github.com/sunishbharat/pulseboard/blob/main/CHANGELOG.md"
+
+[project.entry-points."pulseboard.exporters"]
+html = "pulseboard.exports.formats:html_exporter"
+xlsx = "pulseboard.exports.formats:xlsx_exporter"
+csv = "pulseboard.exports.formats:csv_exporter"
+json = "pulseboard.exports.formats:json_exporter"
+
+[project.entry-points."pulseboard.reports"]
+status_summary = "pulseboard.reports.status:status_summary"
+gantt = "pulseboard.reports.schedule:gantt"
+critical_path = "pulseboard.reports.schedule:critical_path"
+milestones = "pulseboard.reports.schedule:milestones"
+dependency_map = "pulseboard.reports.schedule:dependency_map"
+workload = "pulseboard.reports.status:workload"
+burn = "pulseboard.reports.flow:burn"
+cumulative_flow = "pulseboard.reports.flow:cumulative_flow"
+cycle_time = "pulseboard.reports.flow:cycle_time"
+throughput = "pulseboard.reports.flow:throughput"
+aging_wip = "pulseboard.reports.flow:aging_wip"
+monte_carlo = "pulseboard.reports.flow:monte_carlo"
+
+[project.entry-points."pulseboard.sources"]
+jira = "pulseboard.sources.jira.client:jira_source_factory"
+
+[project.entry-points."pulseboard.warnings"]
+W001_cycle = "pulseboard.engine.rules:cycle"
+W002_external_blocker = "pulseboard.engine.rules:external_blocker"
+W003_missing_estimate = "pulseboard.engine.rules:missing_estimate"
+W004_invalid_estimate = "pulseboard.engine.rules:invalid_estimate"
+W005_unassigned = "pulseboard.engine.rules:unassigned"
+W006_due_date_miss = "pulseboard.engine.rules:due_date_miss"
+W007_sprint_spill = "pulseboard.engine.rules:sprint_spill"
+W008_overallocation = "pulseboard.engine.rules:overallocation"
+W009_blocked_in_progress = "pulseboard.engine.rules:blocked_in_progress"
+W010_milestone_risk = "pulseboard.engine.rules:milestone_risk"
+W011_low_confidence = "pulseboard.engine.rules:low_confidence"
+W012_solver_wallclock_cap = "pulseboard.engine.rules:solver_wallclock_cap"
+W013_stale_plan = "pulseboard.engine.rules:stale_plan"
+W014_aging_wip = "pulseboard.engine.rules:aging_wip"
+
+[project.optional-dependencies]
+hosted = [
+    "itsdangerous>=2.2,<3",
+]
+
+[dependency-groups]
+dev = [
+    "cyclonedx-bom>=7.5.0",
+    "deptry>=0.25.1",
+    "hypothesis>=6.170.5",
+    "mypy>=2.4.0",
+    "pandas-stubs>=3.0.5.260914",
+    "pip-audit>=2.10.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-benchmark>=5.3.0",
+    "pytest-cov>=7.1.0",
+    "pytest-recording>=0.14.0",
+    "responses>=0.26.3",
+    "ruff>=0.17.1",
+    "syrupy>=6.1.1",
+    "types-networkx>=3.6.1.20261018",
+    "zizmor>=1.31.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.10,<0.10"]
+build-backend = "uv_build"
+
+# ---------------------------------------------------------------- ruff
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "N",    # naming
+    "ANN",  # annotations
+    "S",    # bandit
+    "PT",   # pytest style
+    "RET",  # returns
+    "SIM",  # simplify
+    "TRY",  # exception handling
+    "DTZ",  # naive datetimes
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]           # assert is how pytest checks
+"scripts/**" = ["S603", "S607"]  # read-only git calls with fixed arguments
+
+# ---------------------------------------------------------------- mypy
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests", "scripts"]
+plugins = ["pydantic.mypy"]
+mypy_path = ["scripts", "tests"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+# These libraries ship no type information: pyjobshop is used only by the scheduler adapter,
+# plotly only by report modules, openpyxl only by tests (pandas uses it internally), vcr only
+# by the fixture-rendering script (pytest-recording's vcrpy), yaml only by the image smoke test.
+module = ["pyjobshop.*", "plotly.*", "openpyxl.*", "vcr", "vcr.*", "yaml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pulseboard.domain.*", "pulseboard.engine.*", "pulseboard.services.*"]
+disallow_any_explicit = true
+
+[[tool.mypy.overrides]]
+# These modules annotate with numpy's NDArray and networkx's DiGraph, whose library
+# definitions contain Any; the modules themselves never write Any.
+module = [
+    "pulseboard.engine.analyzer",
+    "pulseboard.engine.calendar",
+    "pulseboard.engine.request_builder",
+]
+disallow_any_explicit = false
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ---------------------------------------------------------------- pytest
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts", "tests"]
+addopts = ["-q", "--strict-markers", "--strict-config"]
+asyncio_mode = "auto"
+xfail_strict = true
+filterwarnings = ["error"]
+markers = [
+    "integration: needs a real Jira site (nightly only)",
+]
+
+[tool.coverage.run]
+source = ["pulseboard"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "assert_never\\("]
+
+# ---------------------------------------------------------------- deptry
+
+[tool.deptry]
+known_first_party = ["pulseboard"]
+
+[tool.deptry.per_rule_ignores]
+# pydantic-core is pydantic's exactly pinned core; `core_schema` is imported from it per
+# pydantic's documentation for custom types. starlette and mcp: FastMCP's custom routes, ASGI
+# middleware and middleware hooks are typed with them (hosted HTTP mode); FastMCP pins both.
+DEP003 = ["pydantic_core", "starlette", "mcp"]
+DEP002 = [
+    # Loaded by name, never imported: pandas.ExcelWriter(engine="openpyxl"), and the
+    # CP-SAT solver behind pyjobshop (declared because its parameters are set, ADR-019).
+    "openpyxl",
+    "ortools",
+    # Declared in DESIGN §6.3 for observability (spans, structured logs; M7.3). Remove each
+    # entry as soon as the first module imports it.
+    "opentelemetry-api",
+    "structlog",
+]

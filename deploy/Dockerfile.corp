@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+# Corporate wrapper around the public image (ADDENDUM-01 §5.1 CF-9, §5.3 CF-10).
+#
+# BASE_TAG is required and must be an exact release version such as 1.2.0; "latest" is refused.
+# Build with deploy/ as the context so only deploy/corp-ca/ is sent:
+#   docker buildx build --platform linux/amd64 -f deploy/Dockerfile.corp \
+#     --build-arg BASE_TAG=1.2.0 -t <corporate-registry>/pulseboard:1.2.0 --load deploy
+#
+# Corporate CA: by default none is needed (L5). Only if the §5.3 curl diagnostic shows a
+# certificate verify error, put the corporate root(s) as *.crt files in deploy/corp-ca/ on the
+# build machine (never commit them). They are combined with the image's certifi bundle (L6).
+
+ARG BASE_IMAGE=ghcr.io/sunishbharat/pulseboard
+ARG BASE_TAG
+
+# An empty BASE_TAG makes this reference invalid, so the build stops here.
+FROM ${BASE_IMAGE}:${BASE_TAG}
+
+ARG BASE_TAG
+USER 0:0
+RUN case "${BASE_TAG}" in \
+      latest|"") echo "BASE_TAG must be an exact release version, not '${BASE_TAG}'" >&2; exit 1 ;; \
+    esac
+
+COPY corp-ca/ /tmp/corp-ca/
+RUN set -eu; \
+    mkdir -p /app/certs; \
+    if ls /tmp/corp-ca/*.crt >/dev/null 2>&1; then \
+      cat "$(/app/.venv/bin/python -c 'import certifi; print(certifi.where())')" \
+          /tmp/corp-ca/*.crt > /app/certs/ca-bundle.pem; \
+      echo "Corporate CA added to the certifi bundle"; \
+    else \
+      cp "$(/app/.venv/bin/python -c 'import certifi; print(certifi.where())')" /app/certs/ca-bundle.pem; \
+    fi; \
+    rm -rf /tmp/corp-ca; \
+    chmod 0644 /app/certs/ca-bundle.pem
+
+# Both variables point at the combined bundle, never at a corporate root alone (L6).
+ENV REQUESTS_CA_BUNDLE=/app/certs/ca-bundle.pem \
+    SSL_CERT_FILE=/app/certs/ca-bundle.pem
+
+USER 1000:1000
+CMD ["/app/start.sh"]

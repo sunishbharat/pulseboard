@@ -1,0 +1,21 @@
+# Reviewers per folder (docs/DESIGN.md §19.2). One maintainer today (MAINTAINERS); as the
+# community grows, Cloud and Data Center maintainers own their adapter folders, both groups own
+# the shared Jira code, and core maintainers own the engine, reports and interfaces.
+
+*                                       @sunishbharat
+
+# Jira: shared code (both groups). Split into common/, cloud/ and datacenter/ per §19.1.
+/src/pulseboard/sources/jira/           @sunishbharat
+/tests/sources/                         @sunishbharat
+/tests/fixtures/cassettes/              @sunishbharat
+
+# Core
+/src/pulseboard/engine/                 @sunishbharat
+/src/pulseboard/reports/                @sunishbharat
+/src/pulseboard/mcp/                    @sunishbharat
+/src/pulseboard/cli/                    @sunishbharat
+
+# Governance and supply chain
+/.github/                               @sunishbharat
+/pyproject.toml                         @sunishbharat
+/uv.lock                                @sunishbharat

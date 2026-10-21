@@ -1,0 +1,9 @@
+# Allowlist (ADDENDUM-01 §5.1): exclude everything, then include only the image inputs.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!deploy/start.sh
+**/__pycache__

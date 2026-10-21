@@ -1,0 +1,9 @@
+Pulseboard maintainers
+======================
+
+Governance: a single lead maintainer has final say on decisions (ADR-013).
+Significant decisions are recorded as ADRs in docs/adr/.
+
+Lead maintainer
+---------------
+sunishbharat (GitHub: @sunishbharat) - all areas

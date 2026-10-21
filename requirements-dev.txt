@@ -1,0 +1,25 @@
+# Pulseboard development tools (DESIGN.md §6.5).
+# Install with:  uv add --dev -r requirements-dev.txt
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+hypothesis
+syrupy
+pytest-recording
+responses
+pytest-benchmark
+
+# Lint, format, typing
+ruff
+mypy
+types-networkx
+pandas-stubs
+
+# Hygiene and supply chain
+pre-commit
+pip-audit
+deptry
+zizmor
+cyclonedx-bom

@@ -1,0 +1,278 @@
+# serializer version: 1
+# name: test_golden_fixture_plan
+  '''
+  {
+   "schema_version": "1.0.0",
+   "plan_id": "plan-1",
+   "site_id": "acme",
+   "board_ids": [
+    42
+   ],
+   "account_id": "acc-1",
+   "plan_date": "2026-10-19",
+   "team_time_zone": "UTC",
+   "engine_version": "0.1.0",
+   "settings_hash": "settings-hash",
+   "snapshot_hash": "f4dad6bf492c71dfc131c099f683b47f895077ae9c771ab619590d54a0282eb7",
+   "scheduled_tasks": [
+    {
+     "issue_id": 104,
+     "issue_key": "ABC-104",
+     "start": "2026-10-19",
+     "end": "2026-10-19",
+     "effort_hours": 8.0,
+     "duration_working_days": 1.0,
+     "effort_source": "remaining",
+     "lane": "alice",
+     "constraint_reason": "plan_date",
+     "constraining_issue_id": null,
+     "total_float_working_days": 3.0,
+     "critical": false,
+     "tentative": false
+    },
+    {
+     "issue_id": 105,
+     "issue_key": "ABC-105",
+     "start": "2026-10-19",
+     "end": "2026-10-21",
+     "effort_hours": 22.857142857142858,
+     "duration_working_days": 3.0,
+     "effort_source": "story_points",
+     "lane": "bob",
+     "constraint_reason": "plan_date",
+     "constraining_issue_id": null,
+     "total_float_working_days": 0.0,
+     "critical": true,
+     "tentative": false
+    },
+    {
+     "issue_id": 106,
+     "issue_key": "ABC-106",
+     "start": "2026-10-20",
+     "end": "2026-10-21",
+     "effort_hours": 15.238095238095237,
+     "duration_working_days": 2.0,
+     "effort_source": "story_points",
+     "lane": "alice",
+     "constraint_reason": "dependency",
+     "constraining_issue_id": 104,
+     "total_float_working_days": 3.0,
+     "critical": false,
+     "tentative": false
+    },
+    {
+     "issue_id": 107,
+     "issue_key": "ABC-107",
+     "start": "2026-10-22",
+     "end": "2026-10-26",
+     "effort_hours": 22.857142857142858,
+     "duration_working_days": 3.0,
+     "effort_source": "story_points",
+     "lane": "carol",
+     "constraint_reason": "dependency",
+     "constraining_issue_id": 105,
+     "total_float_working_days": 0.0,
+     "critical": true,
+     "tentative": false
+    },
+    {
+     "issue_id": 108,
+     "issue_key": "ABC-108",
+     "start": "2026-10-27",
+     "end": "2026-10-27",
+     "effort_hours": 8.0,
+     "duration_working_days": 1.0,
+     "effort_source": "default",
+     "lane": "carol",
+     "constraint_reason": "resource",
+     "constraining_issue_id": 107,
+     "total_float_working_days": 4.0,
+     "critical": false,
+     "tentative": false
+    },
+    {
+     "issue_id": 109,
+     "issue_key": "ABC-109",
+     "start": "2026-10-27",
+     "end": "2026-11-02",
+     "effort_hours": 38.095238095238095,
+     "duration_working_days": 5.0,
+     "effort_source": "story_points",
+     "lane": "alice",
+     "constraint_reason": "dependency",
+     "constraining_issue_id": 107,
+     "total_float_working_days": 0.0,
+     "critical": true,
+     "tentative": false
+    },
+    {
+     "issue_id": 110,
+     "issue_key": "ABC-110",
+     "start": "2026-10-26",
+     "end": "2026-10-28",
+     "effort_hours": 22.857142857142858,
+     "duration_working_days": 3.0,
+     "effort_source": "story_points",
+     "lane": "bob",
+     "constraint_reason": "release_date",
+     "constraining_issue_id": null,
+     "total_float_working_days": 11.0,
+     "critical": false,
+     "tentative": false
+    },
+    {
+     "issue_id": 111,
+     "issue_key": "ABC-111",
+     "start": "2026-10-26",
+     "end": "2026-10-27",
+     "effort_hours": 15.238095238095237,
+     "duration_working_days": 2.0,
+     "effort_source": "story_points",
+     "lane": null,
+     "constraint_reason": "release_date",
+     "constraining_issue_id": null,
+     "total_float_working_days": 12.0,
+     "critical": false,
+     "tentative": false
+    },
+    {
+     "issue_id": 112,
+     "issue_key": "ABC-112",
+     "start": "2026-11-03",
+     "end": "2026-11-13",
+     "effort_hours": 60.95238095238095,
+     "duration_working_days": 8.0,
+     "effort_source": "story_points",
+     "lane": "carol",
+     "constraint_reason": "dependency",
+     "constraining_issue_id": 109,
+     "total_float_working_days": 0.0,
+     "critical": true,
+     "tentative": false
+    }
+   ],
+   "dependency_edges": [
+    {
+     "predecessor": 104,
+     "successor": 106
+    },
+    {
+     "predecessor": 105,
+     "successor": 107
+    },
+    {
+     "predecessor": 106,
+     "successor": 109
+    },
+    {
+     "predecessor": 107,
+     "successor": 109
+    },
+    {
+     "predecessor": 109,
+     "successor": 112
+    }
+   ],
+   "critical_paths": [
+    [
+     105,
+     107,
+     109,
+     112
+    ]
+   ],
+   "forecast": {
+    "method": "schedule",
+    "p50": "2026-11-13",
+    "p85": "2026-11-13",
+    "p95": "2026-11-13",
+    "trial_count": null,
+    "seed": null,
+    "history_weeks": null,
+    "confidence": "medium",
+    "confidence_reason": "89% of open issues are estimated"
+   },
+   "secondary_forecast": {
+    "method": "monte_carlo",
+    "p50": "2026-12-22",
+    "p85": "2026-12-22",
+    "p95": "2026-12-22",
+    "trial_count": 10000,
+    "seed": 1,
+    "history_weeks": 3,
+    "confidence": "low",
+    "confidence_reason": "only 3 weeks of throughput history"
+   },
+   "estimated_share": 0.888889,
+   "milestones": [
+    {
+     "kind": "fix_version",
+     "milestone_id": 300,
+     "name": "1.0",
+     "target_date": "2026-10-30",
+     "forecast_date": "2026-11-02",
+     "slip_working_days": 1.0
+    }
+   ],
+   "warnings": [
+    {
+     "rule_id": "W003_missing_estimate",
+     "level": "warning",
+     "message": "ABC-108 has no estimate; default effort used.",
+     "issue_ids": [
+      108
+     ]
+    },
+    {
+     "rule_id": "W005_unassigned",
+     "level": "warning",
+     "message": "ABC-111 has no assignee.",
+     "issue_ids": [
+      111
+     ]
+    },
+    {
+     "rule_id": "W006_due_date_miss",
+     "level": "warning",
+     "message": "ABC-109 is forecast to finish 2026-11-02, after 2026-10-30.",
+     "issue_ids": [
+      109
+     ]
+    },
+    {
+     "rule_id": "W007_sprint_spill",
+     "level": "warning",
+     "message": "ABC-107 is forecast to finish after its sprint ends.",
+     "issue_ids": [
+      107
+     ]
+    },
+    {
+     "rule_id": "W007_sprint_spill",
+     "level": "warning",
+     "message": "ABC-108 is forecast to finish after its sprint ends.",
+     "issue_ids": [
+      108
+     ]
+    },
+    {
+     "rule_id": "W007_sprint_spill",
+     "level": "warning",
+     "message": "ABC-112 is forecast to finish after its sprint ends.",
+     "issue_ids": [
+      112
+     ]
+    },
+    {
+     "rule_id": "W010_milestone_risk",
+     "level": "warning",
+     "message": "Milestone fix_version 300 is forecast 1 working days late.",
+     "issue_ids": []
+    }
+   ],
+   "solver_status": "optimal",
+   "generated_at": "2026-10-19T07:00:00Z",
+   "stale_since": null
+  }
+  '''
+# ---

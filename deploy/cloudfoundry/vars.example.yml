@@ -1,0 +1,9 @@
+# Copy to vars.yml (git-ignored) and fill in. No secrets belong in this file.
+app_name: pulseboard
+# Exact tag of the corporate wrapper image, never latest.
+image: ghcr.io/sunishbharat/pulseboard:1.2.0
+# The route you create for Pulseboard. Use a restricted (internal or private) domain
+# when the foundation offers one (ADR-025).
+route: pulseboard.<your-apps-domain>
+memory: 2G
+disk_quota: 2G

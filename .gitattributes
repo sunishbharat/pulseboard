@@ -1,0 +1,3 @@
+# Shell scripts run inside Linux containers and on Cloud Foundry; CRLF breaks them (ADDENDUM-01 L20).
+*.sh text eol=lf
+deploy/Dockerfile* text eol=lf

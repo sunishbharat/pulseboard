@@ -1,0 +1,61 @@
+# serializer version: 1
+# name: test_14_same_input_gives_identical_result
+  '''
+  [
+   {
+    "issue_id": 104,
+    "start": 0,
+    "end": 2,
+    "resource": "alice"
+   },
+   {
+    "issue_id": 105,
+    "start": 0,
+    "end": 6,
+    "resource": "bob"
+   },
+   {
+    "issue_id": 106,
+    "start": 2,
+    "end": 6,
+    "resource": "alice"
+   },
+   {
+    "issue_id": 107,
+    "start": 6,
+    "end": 12,
+    "resource": "carol"
+   },
+   {
+    "issue_id": 108,
+    "start": 12,
+    "end": 14,
+    "resource": "carol"
+   },
+   {
+    "issue_id": 109,
+    "start": 12,
+    "end": 22,
+    "resource": "alice"
+   },
+   {
+    "issue_id": 110,
+    "start": 10,
+    "end": 16,
+    "resource": "bob"
+   },
+   {
+    "issue_id": 111,
+    "start": 10,
+    "end": 14,
+    "resource": null
+   },
+   {
+    "issue_id": 112,
+    "start": 22,
+    "end": 38,
+    "resource": "carol"
+   }
+  ]
+  '''
+# ---

@@ -1,0 +1,354 @@
+# Hand-built from the Jira REST API documentation; replace with a real recording.
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/myself
+  response:
+    body:
+      string: '{"accountId": "557058:alice", "displayName": "Alice", "active": true, "timeZone": "Europe/Berlin"}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42
+  response:
+    body:
+      string: '{"id": 42, "self": "https://acme.atlassian.net/rest/agile/1.0/board/42", "name": "ABC board", "type": "scrum", "location": {"projectKey": "ABC"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42/configuration
+  response:
+    body:
+      string: '{"id": 42, "name": "ABC board", "type": "scrum", "filter": {"id": "10040"}, "columnConfig": {"columns": [{"name": "To Do", "statuses": [{"id": "10000"}]}, {"name": "In Progress", "statuses": [{"id": "3"}]}, {"name": "In Review", "statuses": [{"id": "10001"}]}, {"name": "Done", "statuses": [{"id": "10002"}]}], "constraintType": "issueCount"}, "estimation": {"type": "field", "field": {"fieldId": "customfield_10016", "displayName": "Story point estimate"}}, "ranking": {"rankCustomFieldId": 10019}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42/sprint?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"maxResults": 5, "startAt": 0, "isLast": true, "values": [{"id": 10, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/10", "state": "closed", "name": "Sprint 10", "startDate": "2026-09-28T09:00:00.000Z", "endDate": "2026-10-09T17:00:00.000Z", "originBoardId": 42, "goal": "Ship search"}, {"id": 11, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/11", "state": "active", "name": "Sprint 11", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-23T17:00:00.000Z", "originBoardId": 42, "goal": "Release candidate"}, {"id": 12, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/12", "state": "future", "name": "Sprint 12", "startDate": "2026-10-26T09:00:00.000Z", "endDate": "2026-11-06T17:00:00.000Z", "originBoardId": 42}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42/version?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"maxResults": 5, "startAt": 0, "isLast": true, "values": [{"self": "https://acme.atlassian.net/rest/api/2/version/300", "id": 300, "projectId": 10000, "name": "1.0", "released": false, "releaseDate": "2026-10-30"}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42/epic?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"maxResults": 5, "startAt": 0, "isLast": true, "values": [{"id": 100, "key": "ABC-100", "self": "https://acme.atlassian.net/rest/agile/1.0/epic/100", "name": "Release 1.0", "summary": "Release 1.0 epic", "done": false}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/status
+  response:
+    body:
+      string: '[{"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, {"self": "https://acme.atlassian.net/rest/api/2/status/3", "id": "3", "name": "In Progress", "statusCategory": {"id": 4, "key": "indeterminate", "name": "In Progress"}}, {"self": "https://acme.atlassian.net/rest/api/2/status/10001", "id": "10001", "name": "In Review", "statusCategory": {"id": 4, "key": "indeterminate", "name": "In Progress"}}, {"self": "https://acme.atlassian.net/rest/api/2/status/10002", "id": "10002", "name": "Done", "statusCategory": {"id": 3, "key": "done", "name": "Done"}}]'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/field
+  response:
+    body:
+      string: '[{"id": "summary", "name": "Summary", "custom": false, "schema": {"type": "string", "system": "summary"}}, {"id": "customfield_10016", "name": "Story point estimate", "custom": true, "schema": {"type": "number", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:jsw-story-points"}}, {"id": "customfield_10019", "name": "Rank", "custom": true, "schema": {"type": "any", "custom": "com.pyxis.greenhopper.jira:gh-lexo-rank"}}, {"id": "customfield_10020", "name": "Sprint", "custom": true, "schema": {"type": "array", "items": "json", "custom": "com.pyxis.greenhopper.jira:gh-sprint"}}]'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42/issue?jql=%28statusCategory+%21%3D+Done+OR+resolutiondate+%3E%3D+%222026-07-21%22%29&fields=assignee%2Ccreated%2Ccustomfield_10016%2Ccustomfield_10019%2Cduedate%2Cepic%2CfixVersions%2Cissuelinks%2Cissuetype%2Cparent%2Cpriority%2Cresolutiondate%2Csprint%2Cstatus%2Csummary%2Ctimeestimate%2Ctimeoriginalestimate%2Cupdated&startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"expand": "schema,names", "startAt": 0, "maxResults": 5, "total": 12, "issues": [{"id": "101", "key": "ABC-101", "self": "https://acme.atlassian.net/rest/api/2/issue/101", "fields": {"summary": "Fixture task 101", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10002", "id": "10002", "name": "Done", "statusCategory": {"id": 3, "key": "done", "name": "Done"}}, "assignee": {"accountId": "557058:alice", "displayName": "Alice", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": "2026-10-02T15:00:00.000+0000", "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 10, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/10",
+        "state": "closed", "name": "Sprint 10", "startDate": "2026-09-28T09:00:00.000Z", "endDate": "2026-10-09T17:00:00.000Z", "originBoardId": 42, "goal": "Ship search"}, "fixVersions": [], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 8, "customfield_10019": "0|i000101:"}}, {"id": "102", "key": "ABC-102", "self": "https://acme.atlassian.net/rest/api/2/issue/102", "fields": {"summary": "Fixture task 102", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10002", "id": "10002", "name": "Done", "statusCategory": {"id": 3, "key": "done", "name": "Done"}}, "assignee": {"accountId": "557058:bob", "displayName": "Bob", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": "2026-10-08T15:00:00.000+0000", "parent": {"id":
+        "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 10, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/10", "state": "closed", "name": "Sprint 10", "startDate": "2026-09-28T09:00:00.000Z", "endDate": "2026-10-09T17:00:00.000Z", "originBoardId": 42, "goal": "Ship search"}, "fixVersions": [], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 13, "customfield_10019": "0|i000102:"}}, {"id": "103", "key": "ABC-103", "self": "https://acme.atlassian.net/rest/api/2/issue/103", "fields": {"summary": "Fixture task 103", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10002", "id": "10002", "name": "Done", "statusCategory": {"id": 3, "key": "done", "name": "Done"}}, "assignee": {"accountId": "557058:carol", "displayName": "Carol", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority":
+        {"id": "3", "name": "Medium"}, "issuelinks": [], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": "2026-10-15T11:00:00.000+0000", "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 11, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/11", "state": "active", "name": "Sprint 11", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-23T17:00:00.000Z", "originBoardId": 42, "goal": "Release candidate"}, "fixVersions": [], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 2, "customfield_10019": "0|i000103:"}}, {"id": "104", "key": "ABC-104", "self": "https://acme.atlassian.net/rest/api/2/issue/104", "fields": {"summary": "Fixture task 104", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/3", "id": "3", "name": "In Progress", "statusCategory": {"id":
+        4, "key": "indeterminate", "name": "In Progress"}}, "assignee": {"accountId": "557058:alice", "displayName": "Alice", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 11, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/11", "state": "active", "name": "Sprint 11", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-23T17:00:00.000Z", "originBoardId": 42, "goal": "Release candidate"}, "fixVersions": [{"id": "300", "name": "1.0"}], "timeoriginalestimate": null, "timeestimate": 28800, "customfield_10016": 5, "customfield_10019": "0|i000104:"}}, {"id": "105",
+        "key": "ABC-105", "self": "https://acme.atlassian.net/rest/api/2/issue/105", "fields": {"summary": "Fixture task 105", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10001", "id": "10001", "name": "In Review", "statusCategory": {"id": 4, "key": "indeterminate", "name": "In Progress"}}, "assignee": {"accountId": "557058:bob", "displayName": "Bob", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 11, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/11", "state": "active", "name": "Sprint 11", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-23T17:00:00.000Z",
+        "originBoardId": 42, "goal": "Release candidate"}, "fixVersions": [{"id": "300", "name": "1.0"}], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 3, "customfield_10019": "0|i000105:"}}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42/issue?jql=%28statusCategory+%21%3D+Done+OR+resolutiondate+%3E%3D+%222026-07-21%22%29&fields=assignee%2Ccreated%2Ccustomfield_10016%2Ccustomfield_10019%2Cduedate%2Cepic%2CfixVersions%2Cissuelinks%2Cissuetype%2Cparent%2Cpriority%2Cresolutiondate%2Csprint%2Cstatus%2Csummary%2Ctimeestimate%2Ctimeoriginalestimate%2Cupdated&startAt=5&maxResults=5
+  response:
+    body:
+      string: '{"expand": "schema,names", "startAt": 5, "maxResults": 5, "total": 12, "issues": [{"id": "106", "key": "ABC-106", "self": "https://acme.atlassian.net/rest/api/2/issue/106", "fields": {"summary": "Fixture task 106", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, "assignee": {"accountId": "557058:alice", "displayName": "Alice", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [{"id": "9104", "type": {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "inwardIssue": {"id": "104", "key": "ABC-104", "fields": {"status": {"self": "https://acme.atlassian.net/rest/api/2/status/3", "id": "3", "name": "In Progress", "statusCategory": {"id": 4, "key": "indeterminate", "name": "In Progress"}}}}}], "duedate": null, "created":
+        "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 11, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/11", "state": "active", "name": "Sprint 11", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-23T17:00:00.000Z", "originBoardId": 42, "goal": "Release candidate"}, "fixVersions": [{"id": "300", "name": "1.0"}], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 2, "customfield_10019": "0|i000106:"}}, {"id": "107", "key": "ABC-107", "self": "https://acme.atlassian.net/rest/api/2/issue/107", "fields": {"summary": "Fixture task 107", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, "assignee": {"accountId": "557058:carol",
+        "displayName": "Carol", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [{"id": "9105", "type": {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "inwardIssue": {"id": "105", "key": "ABC-105", "fields": {"status": {"self": "https://acme.atlassian.net/rest/api/2/status/10001", "id": "10001", "name": "In Review", "statusCategory": {"id": 4, "key": "indeterminate", "name": "In Progress"}}}}}], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 11, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/11", "state": "active", "name": "Sprint 11", "startDate": "2026-10-12T09:00:00.000Z", "endDate":
+        "2026-10-23T17:00:00.000Z", "originBoardId": 42, "goal": "Release candidate"}, "fixVersions": [{"id": "300", "name": "1.0"}], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 3, "customfield_10019": "0|i000107:"}}, {"id": "108", "key": "ABC-108", "self": "https://acme.atlassian.net/rest/api/2/issue/108", "fields": {"summary": "Fixture task 108", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, "assignee": {"accountId": "557058:carol", "displayName": "Carol", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [{"id": "920007", "type": {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "inwardIssue": {"id": "20007", "key": "XYZ-7", "fields": {"status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000",
+        "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}}}}], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 11, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/11", "state": "active", "name": "Sprint 11", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-23T17:00:00.000Z", "originBoardId": 42, "goal": "Release candidate"}, "fixVersions": [{"id": "300", "name": "1.0"}], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": null, "customfield_10019": "0|i000108:"}}, {"id": "109", "key": "ABC-109", "self": "https://acme.atlassian.net/rest/api/2/issue/109", "fields": {"summary": "Fixture task 109", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000",
+        "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, "assignee": {"accountId": "557058:alice", "displayName": "Alice", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [{"id": "9106", "type": {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "inwardIssue": {"id": "106", "key": "ABC-106", "fields": {"status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}}}}, {"id": "9107", "type": {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "inwardIssue": {"id": "107", "key": "ABC-107", "fields": {"status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}}}}],
+        "duedate": "2026-10-30", "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": {"id": "100", "key": "ABC-100", "fields": {"summary": "Release 1.0 epic", "issuetype": {"id": "10000", "name": "Epic", "subtask": false}}}, "sprint": {"id": 12, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/12", "state": "future", "name": "Sprint 12", "startDate": "2026-10-26T09:00:00.000Z", "endDate": "2026-11-06T17:00:00.000Z", "originBoardId": 42}, "fixVersions": [{"id": "300", "name": "1.0"}], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 5, "customfield_10019": "0|i000109:"}}, {"id": "110", "key": "ABC-110", "self": "https://acme.atlassian.net/rest/api/2/issue/110", "fields": {"summary": "Fixture task 110", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, "assignee": {"accountId":
+        "557058:bob", "displayName": "Bob", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": null, "sprint": {"id": 12, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/12", "state": "future", "name": "Sprint 12", "startDate": "2026-10-26T09:00:00.000Z", "endDate": "2026-11-06T17:00:00.000Z", "originBoardId": 42}, "fixVersions": [], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": "3", "customfield_10019": "0|i000110:"}}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/agile/1.0/board/42/issue?jql=%28statusCategory+%21%3D+Done+OR+resolutiondate+%3E%3D+%222026-07-21%22%29&fields=assignee%2Ccreated%2Ccustomfield_10016%2Ccustomfield_10019%2Cduedate%2Cepic%2CfixVersions%2Cissuelinks%2Cissuetype%2Cparent%2Cpriority%2Cresolutiondate%2Csprint%2Cstatus%2Csummary%2Ctimeestimate%2Ctimeoriginalestimate%2Cupdated&startAt=10&maxResults=5
+  response:
+    body:
+      string: '{"expand": "schema,names", "startAt": 10, "maxResults": 5, "total": 12, "issues": [{"id": "111", "key": "ABC-111", "self": "https://acme.atlassian.net/rest/api/2/issue/111", "fields": {"summary": "Fixture task 111", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, "assignee": null, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000", "resolutiondate": null, "parent": null, "sprint": {"id": 12, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/12", "state": "future", "name": "Sprint 12", "startDate": "2026-10-26T09:00:00.000Z", "endDate": "2026-11-06T17:00:00.000Z", "originBoardId": 42}, "fixVersions": [], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016":
+        "two", "customfield_10019": "0|i000111:"}}, {"id": "112", "key": "ABC-112", "self": "https://acme.atlassian.net/rest/api/2/issue/112", "fields": {"summary": "Fixture task 112", "status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}, "assignee": {"accountId": "557058:carol", "displayName": "Carol", "active": true, "timeZone": "Europe/Berlin"}, "issuetype": {"id": "10001", "name": "Story", "subtask": false}, "priority": {"id": "3", "name": "Medium"}, "issuelinks": [{"id": "9109", "type": {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "inwardIssue": {"id": "109", "key": "ABC-109", "fields": {"status": {"self": "https://acme.atlassian.net/rest/api/2/status/10000", "id": "10000", "name": "To Do", "statusCategory": {"id": 2, "key": "new", "name": "To Do"}}}}}], "duedate": null, "created": "2026-10-01T09:00:00.000+0000", "updated": "2026-10-16T12:00:00.000+0000",
+        "resolutiondate": null, "parent": null, "sprint": {"id": 12, "self": "https://acme.atlassian.net/rest/agile/1.0/sprint/12", "state": "future", "name": "Sprint 12", "startDate": "2026-10-26T09:00:00.000Z", "endDate": "2026-11-06T17:00:00.000Z", "originBoardId": 42}, "fixVersions": [], "timeoriginalestimate": null, "timeestimate": null, "customfield_10016": 8, "customfield_10019": "0|i000112:"}}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/101/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 3, "isLast": true, "values": [{"id": "1011", "author": {"accountId": "557058:alice"}, "created": "2026-09-28T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "10", "toString": null}]}, {"id": "1012", "author": {"accountId": "557058:alice"}, "created": "2026-09-29T10:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}, {"id": "1013", "author": {"accountId": "557058:alice"}, "created": "2026-10-02T15:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10002", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/102/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 3, "isLast": true, "values": [{"id": "1021", "author": {"accountId": "557058:alice"}, "created": "2026-09-28T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "10", "toString": null}]}, {"id": "1022", "author": {"accountId": "557058:alice"}, "created": "2026-09-30T09:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}, {"id": "1023", "author": {"accountId": "557058:alice"}, "created": "2026-10-08T15:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10002", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/103/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 3, "isLast": true, "values": [{"id": "1031", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}, {"id": "1032", "author": {"accountId": "557058:alice"}, "created": "2026-10-13T09:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}, {"id": "1033", "author": {"accountId": "557058:alice"}, "created": "2026-10-15T11:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10002", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/104/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 2, "isLast": true, "values": [{"id": "1041", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}, {"id": "1042", "author": {"accountId": "557058:alice"}, "created": "2026-10-14T09:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/105/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 3, "isLast": true, "values": [{"id": "1051", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}, {"id": "1052", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T13:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}, {"id": "1053", "author": {"accountId": "557058:alice"}, "created": "2026-10-16T10:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10001", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/106/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 1, "isLast": true, "values": [{"id": "1061", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/107/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 1, "isLast": true, "values": [{"id": "1071", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/108/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 1, "isLast": true, "values": [{"id": "1081", "author": {"accountId": "557058:alice"}, "created": "2026-10-14T16:00:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/109/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/110/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/111/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/2/issue/112/changelog?startAt=0&maxResults=5
+  response:
+    body:
+      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://acme.atlassian.net/rest/api/3/search/jql?jql=issuekey+in+%28ABC-100%29&fields=duedate
+  response:
+    body:
+      string: '{"issues": [{"id": "100", "key": "ABC-100", "fields": {"duedate": "2026-11-06"}}], "isLast": true}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

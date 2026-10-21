@@ -1,0 +1,53 @@
+# Local tool configuration
+docs/
+*.md
+.env
+*.pem
+*.log
+!README.md
+!CONTRIBUTING.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Ignore all dotfiles and dot-directories by default: .venv, tool caches
+# (.pytest_cache, .mypy_cache, .ruff_cache), dlt state (.dlt), Cube Store data
+# (cube/.cubestore)
+.*
+!.gitignore
+!.env.example
+!.github/
+!.dockerignore
+!.gitattributes
+!.python-version
+
+*.toml
+!pyproject.toml
+*.html
+
+# Environments
+.venv/
+.env
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.benchmarks/
+.coverage
+htmlcov/
+
+# Runtime data
+data/
+
+# Pipeline runtime artifacts (dlt filesystem/DuckDB output)
+out/
+# Corporate CA certificates and filled-in CF vars stay on the build machine
+deploy/corp-ca/*
+!deploy/corp-ca/README.txt
+deploy/cloudfoundry/vars.yml

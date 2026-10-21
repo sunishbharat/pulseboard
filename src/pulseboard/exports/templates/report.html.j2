@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"{% if theme %} data-theme="{{ theme }}"{% endif %}>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="{{ csp }}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · Pulseboard</title>
+<style>
+  :root { --surface: #fcfcfb; --header: #f6f6f3; --grid: #e1e0d9; --text: #0b0b0b; --text-2: #52514e; --muted: #898781; --serious: #ec835a; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --surface: #1a1a19; --header: #20201e; --grid: #2c2c2a; --text: #f0efec; --text-2: #c3c2b7; }
+  }
+  :root[data-theme="dark"] { --surface: #1a1a19; --header: #20201e; --grid: #2c2c2a; --text: #f0efec; --text-2: #c3c2b7; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 16px 24px; color: var(--text); background: var(--surface); }
+  header p, footer p { margin: 2px 0; color: var(--text-2); font-size: 13px; }
+  ul.summary { padding-left: 20px; color: var(--text-2); font-size: 13px; }
+  details { margin: 16px 0; }
+  summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
+  table { border-collapse: collapse; margin: 12px 0 24px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { border: 1px solid var(--grid); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--header); }
+  h2 { font-size: 15px; margin-top: 24px; }
+  .stale { color: var(--text); border-left: 3px solid var(--serious); padding-left: 8px; font-weight: 600; }
+</style>
+</head>
+<body>
+{% if show_header %}
+<header>
+  <h1>{{ title }}</h1>
+  <p>Plan date {{ plan.plan_date }} · time zone {{ plan.team_time_zone }}</p>
+  <p>Forecast ({{ plan.forecast.method.value }}): P50 {{ plan.forecast.p50 }}, P85 {{ plan.forecast.p85 }}, P95 {{ plan.forecast.p95 }} · {{ plan.forecast.confidence.value }} confidence ({{ plan.forecast.confidence_reason }})</p>
+  {% if plan.stale_since %}<p class="stale">Jira was unreachable; data as of {{ plan.stale_since }}.</p>{% endif %}
+</header>
+{% endif %}
+{% if summary %}
+<ul class="summary">
+{% for line in summary %}  <li>{{ line }}</li>
+{% endfor %}</ul>
+{% endif %}
+{% if light %}
+<section class="chart"><div id="chart"></div></section>
+{# Figure JSON is generated here, escaped for a script element; Jira text inside it is already escaped. #}
+<script type="application/json" id="figure-light" nonce="{{ nonce }}">{{ light | safe }}</script>
+{% if dark %}<script type="application/json" id="figure-dark" nonce="{{ nonce }}">{{ dark | safe }}</script>
+{% endif %}
+{% if library == "inline" %}<script nonce="{{ nonce }}">{{ library_source | safe }}</script>
+{% else %}<script nonce="{{ nonce }}" src="{{ library_src }}"{% if library == "cdn" %} integrity="{{ integrity }}" crossorigin="anonymous"{% endif %}></script>
+{% endif %}
+<script nonce="{{ nonce }}">{{ chart_script | safe }}</script>
+{% endif %}
+{% if tables %}
+<details>
+<summary>Table view</summary>
+{% for table in tables %}
+<h2>{{ table.name.replace("_", " ") | capitalize }}</h2>
+<table>
+  <thead><tr>{% for column in table.columns %}<th>{{ column }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for row in table.rows %}<tr>{% for cell in row %}<td>{{ "" if cell is none else cell }}</td>{% endfor %}</tr>
+  {% endfor %}</tbody>
+</table>
+{% endfor %}
+</details>
+{% endif %}
+<footer><p>Plan {{ plan.plan_id }} · generated {{ generated_at.strftime("%Y-%m-%d %H:%M UTC") }} · Pulseboard</p></footer>
+</body>
+</html>

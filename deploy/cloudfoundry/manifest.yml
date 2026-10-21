@@ -1,0 +1,27 @@
+# Pulseboard Profile A on Cloud Foundry (ADDENDUM-01 §1A). Template only: no secrets.
+# Values in ((double parentheses)) come from a vars file (copy vars.example.yml to vars.yml,
+# which is git-ignored) or from --var on the command line. deploy.sh passes both.
+#
+# Set once with `cf set-env`, then `cf restage` (§1A.5, L13), never here:
+#   PULSEBOARD_SITE_URL, PULSEBOARD_SITE_DEPLOYMENT, PULSEBOARD_PUBLIC_URL (https://<route>, the
+#   base of download links; required), PULSEBOARD_ACCESS_KEYS (secret)
+#   Optional: PULSEBOARD_MAX_CONCURRENT_SOLVES (1 by default, at most 2)
+# Jira user credentials are never set on the platform: each request carries its own (§1A.3).
+applications:
+  - name: ((app_name))
+    docker:
+      # An exact tag from the corporate registry, never latest (CF-9, L7).
+      image: ((image))
+    instances: 1                     # in-memory caches and exports are per instance (L32)
+    memory: ((memory))
+    disk_quota: ((disk_quota))       # must exceed the uncompressed image size (L19)
+    command: /app/start.sh           # maps CF's PORT for the server (L26)
+    health-check-type: http
+    health-check-http-endpoint: /health
+    health-check-invocation-timeout: 60
+    timeout: 180                     # start timeout: solver libraries import slowly
+    routes:
+      # Restricted route only (CF-14, ADR-025): internal route, private domain or route service.
+      - route: ((route))
+    env:
+      PULSEBOARD_TRANSPORT: http

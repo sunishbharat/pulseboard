@@ -1,0 +1,37 @@
+# Pulseboard base dependencies (DESIGN.md §6.3).
+# Install with:  uv add -r requirements.txt
+
+# MCP, validation, configuration
+fastmcp>=4.0,<5
+pydantic>=2.9,<3
+pydantic-settings>=2.5,<3
+
+# Jira access, retries, throttling, caching
+atlassian-python-api>=5,<6
+tenacity>=9,<10
+pyrate-limiter>=4,<5
+requests-cache>=1.2,<2
+cachetools>=7,<8
+
+# Scheduling and analysis (exact pins: pre-1.0 or affect determinism)
+pyjobshop==0.0.9
+ortools==9.15.6755
+networkx>=3.3,<4
+numpy>=2,<3
+pandas>=2.2,<3
+holidays==0.107
+
+# Rendering and exports
+plotly>=6.1,<7
+jinja2>=3.1,<4
+openpyxl>=3.1,<4
+
+# Storage
+sqlalchemy>=2,<3
+alembic>=1.13,<2
+
+# Logging, credentials, concurrency, tracing
+structlog>=26,<27
+keyring>=25,<26
+anyio>=4,<5
+opentelemetry-api>=1.27,<2
