@@ -1,6 +1,7 @@
 """JiraSource: hand-built Cloud and Data Center cassettes, simulated errors (§9, §12.5)."""
 
 from datetime import UTC, date, datetime
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -213,6 +214,41 @@ def test_board_too_large(cloud_site: Site, cloud_creds: Credentials) -> None:
 
 
 @responses.activate
+def test_changelogs_come_a_page_of_issues_per_search(
+    cloud_site: Site, cloud_creds: Credentials
+) -> None:
+    """7 changed issues, pages of 5: 2 searches; only the truncated changelog is fetched alone."""
+    _register_board(scrum=False)
+    page = {"issues": [_open_issue(n) for n in range(1, 8)], "total": 7}
+    responses.get(f"{CLOUD}/rest/agile/1.0/board/42/issue", json=page)
+    search = f"{CLOUD}/rest/api/3/search/jql"
+    first = [_logged_issue(n) for n in range(1, 6)]
+    first[0]["changelog"] = {"total": 2, "histories": [_history("1b", "2026-10-03")]}
+    responses.get(search, json={"issues": first})
+    responses.get(search, json={"issues": [_logged_issue(n) for n in (6, 7)]})
+    full = responses.get(
+        f"{CLOUD}/rest/api/2/issue/1/changelog",
+        json={"values": [_history("1a", "2026-10-02"), _history("1b", "2026-10-03")]},
+    )
+
+    data = source(cloud_site, cloud_creds, cache=False).fetch_board(42, window_start=WINDOW)
+
+    searches = [
+        parse_qs(urlsplit(str(c.request.url)).query)
+        for c in responses.calls
+        if "/search/jql" in str(c.request.url)
+    ]
+    assert [(q["jql"], q["expand"]) for q in searches] == [
+        (["id in (1, 2, 3, 4, 5)"], ["changelog"]),
+        (["id in (6, 7)"], ["changelog"]),
+    ]
+    assert full.call_count == 1
+    assert [h.id for h in data.histories["1"]] == ["1a", "1b"]
+    assert [h.id for h in data.histories["7"]] == ["7a"]
+    assert set(data.histories) == {str(n) for n in range(1, 8)}
+
+
+@responses.activate
 def test_configuration_is_cached_but_issues_are_not(
     cloud_site: Site, cloud_creds: Credentials
 ) -> None:
@@ -257,6 +293,20 @@ def _register_board(*, scrum: bool) -> None:
     responses.get(f"{CLOUD}/rest/api/2/field", json=[])
 
 
+def _history(history_id: str, day: str) -> dict[str, object]:
+    return {"id": history_id, "created": f"{day}T09:00:00.000+0000", "items": []}
+
+
+def _logged_issue(n: int) -> dict[str, object]:
+    """A search result with a complete changelog (expand=changelog)."""
+    return {
+        "id": str(n),
+        "key": f"ABC-{n}",
+        "fields": {},
+        "changelog": {"total": 1, "histories": [_history(f"{n}a", "2026-10-02")]},
+    }
+
+
 def _open_issue(n: int) -> dict[str, object]:
     return {
         "id": str(n),
@@ -267,3 +317,38 @@ def _open_issue(n: int) -> dict[str, object]:
             "created": "2026-10-01T09:00:00.000+0000",
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("changelog", "refetched"),
+    [
+        ({"histories": 100}, True),  # no total: a full page may be cut short
+        ({"histories": 99}, False),
+        ({"histories": 101}, True),
+        ({"histories": 50, "maxResults": 50}, True),
+        ({"histories": 100, "total": 100}, False),  # Jira says it is complete
+    ],
+)
+@responses.activate
+def test_changelog_without_total_fails_closed(
+    cloud_site: Site, cloud_creds: Credentials, changelog: dict[str, int], refetched: bool
+) -> None:
+    """PB-15: missing evidence of completeness means "possibly truncated"."""
+    _register_board(scrum=False)
+    responses.get(
+        f"{CLOUD}/rest/agile/1.0/board/42/issue", json={"issues": [_open_issue(1)], "total": 1}
+    )
+    entries = [_history(f"h{i}", "2026-10-02") for i in range(changelog["histories"])]
+    embedded: dict[str, object] = {"histories": entries}
+    embedded |= {k: v for k, v in changelog.items() if k != "histories"}
+    responses.get(
+        f"{CLOUD}/rest/api/3/search/jql",
+        json={"issues": [{"id": "1", "key": "ABC-1", "fields": {}, "changelog": embedded}]},
+    )
+    full = responses.get(
+        f"{CLOUD}/rest/api/2/issue/1/changelog", json={"values": entries, "isLast": True}
+    )
+
+    source(cloud_site, cloud_creds, cache=False).fetch_board(42, window_start=WINDOW)
+
+    assert full.call_count == (1 if refetched else 0)

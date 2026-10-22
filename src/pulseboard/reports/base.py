@@ -126,7 +126,8 @@ def build_context(
 ) -> ReportContext:
     """Derive the shared engine results once for all reports of a plan."""
     team, limits = settings.team, settings.limits
-    calendar = calendar_from_settings(plan.plan_date, team, limits.planning_horizon_years)
+    people = tuple({p.account_id: p for s in snapshots for p in s.people}.values())
+    calendar = calendar_from_settings(plan.plan_date, team, limits.planning_horizon_years, people)
     tasks = {t.issue_id: t for s in snapshots for t in s.tasks}
     flow = (
         flow_metrics(snapshots[0], plan.plan_date, team.time_zone, limits.reporting_window_days)
@@ -134,7 +135,11 @@ def build_context(
         else None
     )
     throughput = weekly_throughput(
-        tuple(tasks.values()), plan.plan_date, team.time_zone, limits.throughput_history_weeks
+        tuple(tasks.values()),
+        plan.plan_date,
+        team.time_zone,
+        limits.throughput_history_weeks,
+        limits.reporting_window_days,
     )
     return ReportContext(
         plan=plan,

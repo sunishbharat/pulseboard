@@ -116,10 +116,12 @@ def _milestone_risk(ctx: WarningContext) -> Iterator[Finding]:
 def _low_confidence(ctx: WarningContext) -> Iterator[Finding]:
     if ctx.estimated_share < ctx.estimated_threshold:
         share = round(ctx.estimated_share * 100)
-        yield (
-            f"Only {share}% of open issues are estimated; the Monte Carlo forecast is primary.",
-            (),
+        primary = (
+            "there is no throughput history, so the schedule stays primary"
+            if ctx.monte_carlo_missing
+            else "the Monte Carlo forecast is primary"
         )
+        yield (f"Only {share}% of open issues are estimated; {primary}.", ())
 
 
 def _solver_wallclock_cap(ctx: WarningContext) -> Iterator[Finding]:
@@ -141,6 +143,35 @@ def _aging_wip(ctx: WarningContext) -> Iterator[Finding]:
         )
 
 
+def _unknown_link_type(ctx: WarningContext) -> Iterator[Finding]:
+    seen = ", ".join(ctx.link_types_seen) or "none"
+    for name in ctx.unknown_link_types:
+        yield (
+            f"No issue link of type '{name}' is on the board, so it adds no dependencies "
+            f"(link types on the board: {seen}). Check team.dependency_link_types.",
+            (),
+        )
+
+
+def _unknown_person(ctx: WarningContext) -> Iterator[Finding]:
+    for account in ctx.unknown_people:
+        yield (
+            f"The people or leave setting for '{account}' matches no one on the board, so it "
+            "has no effect. Use the Jira account ID (Data Center: user key or username).",
+            (),
+        )
+
+
+def _points_rate_fallback(ctx: WarningContext) -> Iterator[Finding]:
+    if ctx.points_fallback_rate is not None:
+        yield (
+            f"No closed sprint has completed story points, so points convert at the fallback "
+            f"rate of {ctx.points_fallback_rate:g} points per person-day "
+            "(team.points.fallback_points_per_day).",
+            (),
+        )
+
+
 W = WarningLevel.WARNING
 cycle = WarningRule(WarningId.CYCLE, WarningLevel.ERROR, _cycle)
 external_blocker = WarningRule(WarningId.EXTERNAL_BLOCKER, W, _external_blocker)
@@ -156,3 +187,6 @@ low_confidence = WarningRule(WarningId.LOW_CONFIDENCE, WarningLevel.INFO, _low_c
 solver_wallclock_cap = WarningRule(WarningId.SOLVER_WALLCLOCK_CAP, W, _solver_wallclock_cap)
 stale_plan = WarningRule(WarningId.STALE_PLAN, W, _stale_plan)
 aging_wip = WarningRule(WarningId.AGING_WIP, WarningLevel.INFO, _aging_wip)
+unknown_link_type = WarningRule(WarningId.UNKNOWN_LINK_TYPE, WarningLevel.INFO, _unknown_link_type)
+unknown_person = WarningRule(WarningId.UNKNOWN_PERSON, W, _unknown_person)
+points_rate_fallback = WarningRule(WarningId.POINTS_RATE_FALLBACK, W, _points_rate_fallback)

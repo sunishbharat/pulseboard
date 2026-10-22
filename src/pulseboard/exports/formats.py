@@ -53,6 +53,8 @@ CHART_SCRIPT = """(function () {
 a click on a task bar opens its Jira issue."""
 _SHEET_NAME_MAX = 31
 _SUMMARY_SHEET = "summary"
+FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+"""Leading characters that make a spreadsheet read a cell as a formula (ADDENDUM-03 §8)."""
 _ENVIRONMENT = SandboxedEnvironment(
     loader=PackageLoader("pulseboard.exports", "templates"),
     autoescape=select_autoescape(default=True, default_for_string=True),
@@ -71,8 +73,34 @@ def content_security_policy(nonce: str) -> str:
     )
 
 
+def spreadsheet_safe(value: object) -> object:
+    """A CSV text cell that cannot run as a formula: one starting with ``= + - @``, a tab or a
+    carriage return gets a leading apostrophe, which spreadsheets read as plain text. Other
+    values are unchanged (ADDENDUM-03 §8)."""
+    if isinstance(value, str) and value.startswith(FORMULA_TRIGGERS):
+        return f"'{value}"
+    return value
+
+
 def _frame(table: Table) -> pd.DataFrame:
     return pd.DataFrame([list(r) for r in table.rows], columns=list(table.columns))
+
+
+def _safe_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Every text cell and column name made spreadsheet-safe (CSV)."""
+    safe = frame.map(spreadsheet_safe)
+    safe.columns = [spreadsheet_safe(str(c)) for c in frame.columns]
+    return safe
+
+
+def _write_sheet(writer: pd.ExcelWriter, frame: pd.DataFrame, sheet: str) -> None:
+    """Write a sheet with every text cell stored as a string, never as a formula. Workbooks
+    keep cell types, so text keeps its exact value (no apostrophe, unlike CSV)."""
+    frame.to_excel(writer, sheet_name=sheet, index=False)
+    for row in writer.sheets[sheet].iter_rows():
+        for cell in row:
+            if cell.data_type == "f":
+                cell.data_type = "s"
 
 
 def figure_json(figure: go.Figure) -> str:
@@ -176,9 +204,9 @@ class XlsxExporter:
             }
         )
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            summary.to_excel(writer, sheet_name=_SUMMARY_SHEET, index=False)
+            _write_sheet(writer, summary, _SUMMARY_SHEET)
             for table in result.tables:
-                _frame(table).to_excel(writer, sheet_name=table.name[:_SHEET_NAME_MAX], index=False)
+                _write_sheet(writer, _frame(table), table.name[:_SHEET_NAME_MAX])
         media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return Rendered(buffer.getvalue(), media, "xlsx")
 
@@ -198,13 +226,14 @@ class CsvExporter:
     ) -> Rendered:
         """Render CSV (or a ZIP of CSVs)."""
         if len(result.tables) == 1:
-            text = _frame(result.tables[0]).to_csv(index=False, lineterminator="\n")
+            text = _safe_frame(_frame(result.tables[0])).to_csv(index=False, lineterminator="\n")
             return Rendered(text.encode(), "text/csv; charset=utf-8", "csv")
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for table in result.tables:
                 archive.writestr(
-                    f"{table.name}.csv", _frame(table).to_csv(index=False, lineterminator="\n")
+                    f"{table.name}.csv",
+                    _safe_frame(_frame(table)).to_csv(index=False, lineterminator="\n"),
                 )
         return Rendered(buffer.getvalue(), "application/zip", "zip")
 

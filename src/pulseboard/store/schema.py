@@ -80,7 +80,11 @@ plans = Table(
     Column("plan_date", String(10), nullable=False),
     Column("generated_at", UtcDateTime, nullable=False),
     Column("data", Text, nullable=False),
+    Column(
+        "snapshot_hash", String(64), nullable=True, comment="The snapshot the plan was built from"
+    ),
     Index("ix_plans_lookup", "site_id", "account_id", "board_key", "settings_hash", "generated_at"),
+    Index("ix_plans_snapshot", "site_id", "account_id", "snapshot_hash"),
 )
 
 exports = Table(

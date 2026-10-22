@@ -27,6 +27,7 @@ from pulseboard.engine.pyjobshop_scheduler import PyJobShopScheduler
 from pulseboard.engine.scheduling import ScheduleRequest, ScheduleResult
 from pulseboard.exports.formats import library_file_name, library_source
 from pulseboard.hosted.config import HostedConfig, load_hosted_config
+from pulseboard.hosted.memory import MemoryLimits
 from pulseboard.hosted.server import MCP_PATH, HostedApp, create_hosted_app
 from pulseboard.settings import Limits, Settings
 
@@ -421,3 +422,21 @@ async def test_jira_outage_says_stale_plans_need_durable_storage(
 
     assert text.startswith("jira_unavailable: Jira is unreachable.")
     assert "requires durable storage" in text
+
+
+async def test_a_plan_expires_with_the_memory_lifetime(jira: FakeJira, clock: Clock) -> None:
+    """PB-05: no cache outlives the store's TTL, so an hour-old plan_id is plan_expired."""
+    hosted = create_hosted_app(
+        Settings(),
+        load_hosted_config(ENVIRON),
+        source_factory=jira,
+        clock=clock,
+        limits=MemoryLimits(ttl_s=3.0),
+    )
+    async with running(hosted) as asgi, mcp_client(asgi, ALICE) as alice:
+        plan_id = (await call(alice, "pb_build_plan", board_link=LINK))["plan_id"]
+        assert (await call(alice, "pb_plan_summary", plan_id=plan_id))["plan_id"] == plan_id
+        await anyio.sleep(3.5)  # past the memory lifetime (the store's monotonic timer)
+        expired = await error(alice, "pb_milestones", plan_id=plan_id)  # reads the plan only
+
+    assert expired.startswith("plan_expired:")

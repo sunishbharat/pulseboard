@@ -9,11 +9,26 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from pulseboard.domain.plan import DependencyEdge, Forecast, Plan, ScheduledTask
-from pulseboard.domain.snapshot import BoardSnapshot
-from pulseboard.domain.types import Confidence, ForecastMethod, Hours, IssueId, PlanId
+from pulseboard.domain.snapshot import BoardSnapshot, Person
+from pulseboard.domain.types import (
+    Confidence,
+    EffortSource,
+    ForecastMethod,
+    Hours,
+    IssueId,
+    PlanId,
+    jira_name_key,
+)
 from pulseboard.engine.analyzer import Analysis, analyze
-from pulseboard.engine.calendar import WorkCalendar, calendar_from_settings
-from pulseboard.engine.effort import Effort, effort_for, estimated_share, points_per_day
+from pulseboard.engine.calendar import WorkCalendar, calendar_from_settings, unknown_people
+from pulseboard.engine.effort import (
+    Effort,
+    PointsRate,
+    RateSource,
+    effort_for,
+    estimated_share,
+    points_rate,
+)
 from pulseboard.engine.flow import FlowMetrics, flow_metrics
 from pulseboard.engine.forecaster import (
     Throughput,
@@ -56,6 +71,7 @@ class Stages:
     analysis: Analysis
     flow: FlowMetrics
     throughput: Throughput
+    rate: PointsRate
 
 
 def combined_snapshot_hash(snapshots: Sequence[BoardSnapshot]) -> str:
@@ -91,8 +107,38 @@ def _scheduled_tasks(stages: Stages) -> dict[IssueId, ScheduledTask]:
     return scheduled
 
 
-def schedule_forecast(end: date, share: float, team: TeamSettings, solved: bool) -> Forecast:
-    """The deterministic schedule as a forecast, with confidence from the estimated share."""
+_LOWER = {Confidence.HIGH: Confidence.MEDIUM, Confidence.MEDIUM: Confidence.LOW}
+
+
+def people_of(snapshots: Sequence[BoardSnapshot]) -> tuple[Person, ...]:
+    """Every person on the snapshots, by identity."""
+    return tuple({p.account_id: p for s in snapshots for p in s.people}.values())
+
+
+def unknown_link_types(snapshots: Sequence[BoardSnapshot], team: TeamSettings) -> tuple[str, ...]:
+    """Configured dependency link types that match no link on the board(s) (warning W015)."""
+    seen = {jira_name_key(name) for s in snapshots for name in s.link_types}
+    return tuple(t.name for t in team.dependency_link_types if jira_name_key(t.name) not in seen)
+
+
+def fallback_rate(rate: PointsRate, efforts: Mapping[IssueId, Effort]) -> float | None:
+    """The fallback points rate, when it converted any open task's story points (W017)."""
+    pointed = any(e.source is EffortSource.STORY_POINTS for e in efforts.values())
+    return rate.per_day if pointed and rate.source is RateSource.FALLBACK else None
+
+
+def schedule_forecast(
+    end: date,
+    share: float,
+    team: TeamSettings,
+    solved: bool,
+    points_fallback: float | None = None,
+) -> Forecast:
+    """The deterministic schedule as a forecast, with confidence from the estimated share.
+
+    Story points converted at the fallback rate (``points_fallback``) lower the confidence one
+    step, and the reason says so (ADDENDUM-03 §6).
+    """
     percent = round(share * 100)
     if not solved:
         confidence, reason = Confidence.LOW, "the scheduler found no solution"
@@ -102,6 +148,12 @@ def schedule_forecast(end: date, share: float, team: TeamSettings, solved: bool)
         confidence, reason = Confidence.MEDIUM, f"{percent}% of open issues are estimated"
     else:
         confidence, reason = Confidence.LOW, f"only {percent}% of open issues are estimated"
+    if solved and points_fallback is not None:
+        confidence = _LOWER.get(confidence, Confidence.LOW)
+        reason += (
+            f"; story points use the fallback rate of {points_fallback:g} points per day "
+            "(no closed sprint with completed points)"
+        )
     return Forecast(
         method=ForecastMethod.SCHEDULE,
         p50=end,
@@ -116,12 +168,14 @@ def run_stages(request: PlanRequest, scheduler: Scheduler) -> Stages:
     """Calendar, effort, request and solve, and analysis."""
     team = request.settings.team
     limits = request.settings.limits
-    calendar = calendar_from_settings(request.plan_date, team, limits.planning_horizon_years)
-    rate = points_per_day(request.snapshots[0], calendar, team.points, team.time_zone)
+    calendar = calendar_from_settings(
+        request.plan_date, team, limits.planning_horizon_years, people_of(request.snapshots)
+    )
+    rate = points_rate(request.snapshots[0], calendar, team.points, team.time_zone)
     efforts = {
         issue_id: effort_for(
             task,
-            points_per_day=rate,
+            points_per_day=rate.per_day,
             hours_per_day=team.hours_per_day,
             default_effort_hours=team.default_effort_hours,
         )
@@ -135,9 +189,13 @@ def run_stages(request: PlanRequest, scheduler: Scheduler) -> Stages:
         request.snapshots[0], request.plan_date, team.time_zone, limits.reporting_window_days
     )
     throughput = weekly_throughput(
-        all_tasks, request.plan_date, team.time_zone, limits.throughput_history_weeks
+        all_tasks,
+        request.plan_date,
+        team.time_zone,
+        limits.throughput_history_weeks,
+        limits.reporting_window_days,
     )
-    return Stages(calendar, efforts, built, result, analysis, flow, throughput)
+    return Stages(calendar, efforts, built, result, analysis, flow, throughput, rate)
 
 
 def build_plan(
@@ -159,8 +217,12 @@ def build_plan(
         seed=request.seed,
         min_history_weeks=settings.limits.min_history_weeks,
     )
+    points_fallback = fallback_rate(stages.rate, stages.efforts)
     forecast, secondary = choose_primary(
-        schedule_forecast(end, share, team, solved), monte_carlo, share, team.estimated_threshold
+        schedule_forecast(end, share, team, solved, points_fallback),
+        monte_carlo,
+        share,
+        team.estimated_threshold,
     )
     milestones = milestone_forecasts(request.snapshots, scheduled, stages.calendar)
     loads = workload(
@@ -185,6 +247,11 @@ def build_plan(
         stale_since=request.stale_since,
         aging_outliers=stages.flow.aging_outliers(),
         cycle_time_p85_days=stages.flow.cycle_time_p85,
+        unknown_link_types=unknown_link_types(request.snapshots, team),
+        link_types_seen=tuple(sorted({n for s in request.snapshots for n in s.link_types})),
+        unknown_people=unknown_people(team, people_of(request.snapshots)),
+        points_fallback_rate=points_fallback,
+        monte_carlo_missing=monte_carlo is None,
     )
     first = request.snapshots[0]
     plan = Plan(
@@ -203,6 +270,7 @@ def build_plan(
             for e in stages.built.request.dependencies
         ),
         critical_paths=stages.analysis.critical_paths,
+        critical_paths_truncated=stages.analysis.paths_truncated,
         forecast=forecast,
         secondary_forecast=secondary,
         estimated_share=round(share, 6),

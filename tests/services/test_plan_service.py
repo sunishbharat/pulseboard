@@ -14,6 +14,7 @@ from pulseboard.domain.types import (
     PlanId,
     RequestProfile,
     SiteId,
+    SolverStatus,
     WarningId,
 )
 from pulseboard.engine.forecaster import seed_for
@@ -22,6 +23,7 @@ from pulseboard.engine.scheduling import Scheduler, ScheduleRequest, ScheduleRes
 from pulseboard.engine.warnings import load_rules
 from pulseboard.errors import (
     BoardTooLargeError,
+    InvalidArgumentError,
     JiraUnavailableError,
     PlanExpiredError,
     SiteNotConfiguredError,
@@ -157,6 +159,34 @@ async def test_board_too_large(cloud_site: Site) -> None:
         await svc.build(LINK)
 
 
+async def test_work_beyond_planning_horizon_is_refused(cloud_site: Site) -> None:
+    """No velocity history: 1 point per day, so 1,000 points cannot finish by 2027-12-31."""
+    source = FakeSource([snapshot((task(1, story_points=1000.0),))])
+    svc = service(cloud_site, source, Clock(), limits=Limits(planning_horizon_years=1))
+
+    with pytest.raises(BoardTooLargeError) as info:
+        await svc.build(LINK)
+
+    assert "planning horizon (until 2027-12-31)" in info.value.message
+    assert info.value.hint is not None
+    assert "limits.planning_horizon_years" in info.value.hint
+
+
+class UnsolvedScheduler:
+    def solve(self, request: ScheduleRequest) -> ScheduleResult:
+        return ScheduleResult(status=SolverStatus.NOT_SOLVED, timings=())
+
+
+async def test_no_schedule_within_solver_budget_is_refused(cloud_site: Site) -> None:
+    source = FakeSource([fixture_board()])
+    svc = service(cloud_site, source, Clock(), scheduler=UnsolvedScheduler())
+
+    with pytest.raises(ToolTimeoutError) as info:
+        await svc.build(LINK)
+
+    assert info.value.message == "The scheduler found no plan within its budget."
+
+
 async def test_timeout_after_snapshot_returns_flow_metrics(cloud_site: Site) -> None:
     source, clock = FakeSource([fixture_board()]), Clock()
     svc = service(
@@ -169,6 +199,8 @@ async def test_timeout_after_snapshot_returns_flow_metrics(cloud_site: Site) -> 
     assert result.partial is not None
     assert result.partial.open_issues == 9
     assert result.partial.flow.cfd
+    assert result.partial.reason.startswith("timeout:")  # PB-12: says why, and what next
+    assert "limits.tool_timeout_s" in result.partial.reason
 
 
 async def test_timeout_before_snapshot_raises(cloud_site: Site) -> None:
@@ -283,3 +315,80 @@ async def test_polite_site_plans_with_polite_limits(cloud_site: Site) -> None:
     assert result.plan.settings_hash != settings_hash(svc.settings)
     assert source.calls[0].window_start == svc.today() - timedelta(days=30)
     assert svc.settings_for(SiteId("removed-site")) is svc.settings
+
+
+# ---------------------------------------------------------------- a plan_id is self-contained
+
+
+async def test_a_plan_whose_snapshot_is_gone_is_expired(cloud_site: Site) -> None:
+    """PB-04: never answer from an empty snapshot list (counts of zero)."""
+    engine = create_store_engine("sqlite://")
+    migrate(engine)
+    store = SnapshotStore(engine)
+    svc = service(cloud_site, FakeSource([fixture_board()]), Clock(), store=store)
+    plan = (await svc.build(LINK)).plan
+    assert plan is not None
+    assert len(svc.snapshots_for(plan)) == 1
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM snapshots")
+
+    with pytest.raises(PlanExpiredError, match="board data"):
+        svc.snapshots_for(plan)
+
+
+async def test_changed_settings_expire_existing_plans(cloud_site: Site) -> None:
+    """PB-09: the same plan_id never answers with other settings than it was built with."""
+    engine = create_store_engine("sqlite://")
+    migrate(engine)
+    store = SnapshotStore(engine)
+    source, clock = FakeSource([fixture_board()]), Clock()
+    plan = (await service(cloud_site, source, clock, store=store).build(LINK)).plan
+    assert plan is not None
+    same = service(cloud_site, source, clock, store=store)
+    settings = Settings(sites=(cloud_site,), team=TeamSettings(hours_per_day=4.0))
+    changed = PlanService(
+        settings=settings,
+        registry=SiteRegistry(settings.sites),
+        store=store,
+        source_for=lambda _site: source,
+        scheduler=PyJobShopScheduler(),
+        rules=load_rules(),
+        clock=clock,
+        engine_version="0.1.0",
+    )
+
+    assert same.get_plan(plan.plan_id) == plan
+    assert same.workload(plan) == same.workload(plan)
+    with pytest.raises(PlanExpiredError, match="settings changed"):
+        changed.get_plan(plan.plan_id)
+
+
+@pytest.mark.parametrize(
+    ("weeks", "account", "error"),
+    [
+        (0, None, "weeks must be at least 1"),
+        (-1, None, "weeks must be at least 1"),
+        (None, "nobody", "No work in this plan is assigned to 'nobody'"),
+    ],
+)
+async def test_workload_arguments_are_checked(
+    cloud_site: Site, weeks: int | None, account: str | None, error: str
+) -> None:
+    """PB-13, PB-20: bad arguments are typed errors, never silently reinterpreted."""
+    svc = service(cloud_site, FakeSource([fixture_board()]), Clock())
+    plan = (await svc.build(LINK)).plan
+    assert plan is not None
+
+    with pytest.raises(InvalidArgumentError, match=error):
+        svc.workload(plan, account, weeks)
+    assert len({w.week_start for w in svc.workload(plan, weeks=1)}) == 1
+
+
+@pytest.mark.parametrize(("window", "error"), [(0, True), (-5, True), (1, False), (None, False)])
+async def test_flow_window_is_checked(cloud_site: Site, window: int | None, error: bool) -> None:
+    svc = service(cloud_site, FakeSource([fixture_board()]), Clock())
+    if error:
+        with pytest.raises(InvalidArgumentError, match="window_days must be at least 1"):
+            svc.flow_window(SiteId("acme"), window)
+    else:
+        assert svc.flow_window(SiteId("acme"), window) == (window or 90)

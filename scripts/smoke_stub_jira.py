@@ -1,8 +1,8 @@
 """Stub Jira for the image smoke test: replays recorded responses over HTTPS.
 
 Runs inside a plain ``python`` container (standard library only), reachable from the Pulseboard
-container under the recorded host name. Responses are matched by method, path and ``startAt``;
-other query parameters (the date in the issue JQL, page sizes) are ignored.
+container under the recorded host name. Responses are matched by method, path, ``startAt``,
+``expand`` and ``nextPageToken``; other query parameters (the JQL, page sizes) are ignored.
 
 Usage: python smoke_stub_jira.py ROUTES_JSON CERT_PEM KEY_PEM [PORT]
 """
@@ -14,14 +14,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-Key = tuple[str, str, str]
+Key = tuple[str, str, str, str, str]
+MATCHED_PARAMETERS = ("startAt", "expand", "nextPageToken")
 
 
 def route_key(method: str, target: str) -> Key:
-    """The match key of a request: method, path and ``startAt`` (empty when absent)."""
+    """The match key of a request: method, path and the matched parameters (empty when absent)."""
     parts = urlsplit(target)
-    start = parse_qs(parts.query).get("startAt", [""])[0]
-    return method.upper(), parts.path, start
+    query = parse_qs(parts.query)
+    start, expand, token = (query.get(name, [""])[0] for name in MATCHED_PARAMETERS)
+    return method.upper(), parts.path, start, expand, token
 
 
 def load_routes(path: Path) -> dict[Key, tuple[int, str]]:

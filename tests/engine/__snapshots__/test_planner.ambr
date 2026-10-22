@@ -2,7 +2,7 @@
 # name: test_golden_fixture_plan
   '''
   {
-   "schema_version": "1.0.0",
+   "schema_version": "1.1.0",
    "plan_id": "plan-1",
    "site_id": "acme",
    "board_ids": [
@@ -13,7 +13,7 @@
    "team_time_zone": "UTC",
    "engine_version": "0.1.0",
    "settings_hash": "settings-hash",
-   "snapshot_hash": "f4dad6bf492c71dfc131c099f683b47f895077ae9c771ab619590d54a0282eb7",
+   "snapshot_hash": "87db993012649bccf3097ade90dea82f628b72072372349e6aa81fc84390cc63",
    "scheduled_tasks": [
     {
      "issue_id": 104,
@@ -181,6 +181,7 @@
      112
     ]
    ],
+   "critical_paths_truncated": false,
    "forecast": {
     "method": "schedule",
     "p50": "2026-11-13",

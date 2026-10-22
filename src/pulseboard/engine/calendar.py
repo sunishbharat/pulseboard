@@ -17,7 +17,8 @@ import holidays
 import numpy as np
 import numpy.typing as npt
 
-from pulseboard.domain.types import AccountId, WorkingDays
+from pulseboard.domain.snapshot import Person
+from pulseboard.domain.types import AccountId, WorkingDays, jira_name_key
 from pulseboard.settings import TeamSettings
 
 HALF_DAYS_PER_DAY = 2
@@ -117,6 +118,11 @@ class WorkCalendar:
         days = np.busday_count(self._origin, self._horizon_end, holidays=self._holidays)
         return int(days) * HALF_DAYS_PER_DAY
 
+    @property
+    def last_day(self) -> date:
+        """The last calendar day of the planning horizon."""
+        return _to_date(self._horizon_end - np.timedelta64(1, "D"))
+
     def date_of_unit(self, unit: int) -> date:
         """The calendar date of time-axis ``unit``."""
         day = np.busday_offset(self._origin, unit // HALF_DAYS_PER_DAY, holidays=self._holidays)
@@ -207,12 +213,47 @@ class WorkCalendar:
         return WorkingDays(units / HALF_DAYS_PER_DAY)
 
 
-def calendar_from_settings(plan_date: date, team: TeamSettings, horizon_years: int) -> WorkCalendar:
-    """Build the team calendar from settings: holiday countries, capacity, leave."""
-    configured = {p.account_id: p for p in team.people}
+def _identities(people: Sequence[Person]) -> dict[str, AccountId]:
+    """Every name a person may be configured by (identity, DC username) → their identity."""
+    found: dict[str, AccountId] = {}
+    for p in people:
+        found[jira_name_key(p.account_id)] = p.account_id
+        if p.username:
+            found.setdefault(jira_name_key(p.username), p.account_id)
+    for p in people:  # an exact identity always wins over another person's username
+        found[p.account_id] = p.account_id
+    return found
+
+
+def resolve_person(configured: str, people: Sequence[Person]) -> AccountId | None:
+    """The identity of the board person a people or leave setting names: by exact identity,
+    else by identity or Data Center username compared as Jira names (ADDENDUM-03 §5)."""
+    identities = _identities(people)
+    return identities.get(configured) or identities.get(jira_name_key(configured))
+
+
+def unknown_people(team: TeamSettings, people: Sequence[Person]) -> tuple[str, ...]:
+    """Configured people and leave entries that match no one on the board (warning W016)."""
+    configured = {p.account_id for p in team.people} | {p.account_id for p in team.leave}
+    return tuple(sorted(c for c in configured if resolve_person(c, people) is None))
+
+
+def calendar_from_settings(
+    plan_date: date, team: TeamSettings, horizon_years: int, assignees: Sequence[Person] = ()
+) -> WorkCalendar:
+    """Build the team calendar from settings: holiday countries, capacity, leave.
+
+    Settings name people by identity; a name that is not an identity of ``assignees`` (the
+    board's people) but matches one of their usernames (Data Center) applies to that person.
+    """
+
+    def identity(configured: AccountId) -> AccountId:
+        return resolve_person(configured, assignees) or configured
+
+    configured = {identity(p.account_id): p for p in team.people}
     leave: dict[AccountId, list[tuple[date, date]]] = {}
     for period in team.leave:
-        leave.setdefault(period.account_id, []).append((period.start, period.end))
+        leave.setdefault(identity(period.account_id), []).append((period.start, period.end))
     people = []
     for account in sorted(set(configured) | set(leave)):
         settings = configured.get(account)

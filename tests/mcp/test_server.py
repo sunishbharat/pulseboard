@@ -2,18 +2,19 @@
 
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 from fastmcp import Client
 from fastmcp.client.transports import FastMCPTransport
 from syrupy.assertion import SnapshotAssertion
 
-from fakes import LINK, FakeSource
-from pulseboard.app import App
+from fakes import LINK, Clock, FakeSource
+from pulseboard.app import App, open_store
 from pulseboard.domain.types import Confidence, ForecastMethod
 from pulseboard.mcp.models import (
     BuildPlanOut,
-    CriticalTaskOut,
+    CriticalPathOut,
     FlowSummary,
     ForecastOut,
     LoadOut,
@@ -23,7 +24,8 @@ from pulseboard.mcp.models import (
     WarningsOut,
 )
 from pulseboard.mcp.pagination import Page, estimate_tokens
-from pulseboard.settings import TokenBudgets
+from pulseboard.settings import Settings, TokenBudgets
+from pulseboard.sites import Site
 
 BUDGETS = TokenBudgets()
 TOOLS = {
@@ -107,6 +109,7 @@ async def test_tool_definitions_fit_their_budget(client: McpClient) -> None:
         {"name": d["name"], "description": d["description"], "input_schema": d["inputSchema"]}
         for d in await definitions(client)
     ]
+    assert BUDGETS.tool_definitions == 5000  # DESIGN_2 §13.3 rule 2
     assert tokens(model_visible) <= BUDGETS.tool_definitions
 
 
@@ -182,19 +185,28 @@ async def test_plan_summary_counts(client: McpClient) -> None:
 
     assert (out.to_do, out.in_progress, out.done) == (7, 2, 3)
     assert out.blocked == 4  # 106, 107, 109 and 112 wait on open work
-    assert out.target == date(2026, 10, 30)
+    last = out.last_milestone
+    assert last is not None
+    assert last.target == date(2026, 10, 30)
+    # PB-18: the milestone's own forecast and slip, consistent with each other.
+    assert last.forecast is not None
+    assert last.slip_days is not None
+    assert (last.slip_days > 0) == (last.forecast > last.target)
 
 
 async def test_critical_path(client: McpClient) -> None:
     pid = await plan_id(client)
-    page = Page[CriticalTaskOut].model_validate(await call(client, "pb_critical_path", plan_id=pid))
+    out = CriticalPathOut.model_validate(await call(client, "pb_critical_path", plan_id=pid))
+    page = out.page
 
     assert [t.key for t in page.items] == ["ABC-105", "ABC-107", "ABC-109", "ABC-112"]
     assert page.items[1].after == "ABC-105"
-    hidden = Page[CriticalTaskOut].model_validate(
+    assert out.paths >= 1
+    assert not out.paths_truncated
+    hidden = CriticalPathOut.model_validate(
         await call(client, "pb_critical_path", plan_id=pid, include_summaries=False)
     )
-    assert all(t.summary is None for t in hidden.items)
+    assert all(t.summary is None for t in hidden.page.items)
 
 
 async def test_warnings_filter_and_counts(client: McpClient) -> None:
@@ -250,7 +262,7 @@ async def test_typed_errors(client: McpClient, source: FakeSource) -> None:
         "invalid_cursor:"
     )
     assert (await error(client, "pb_forecast", plan_id=pid, scope="epic", scope_id=1)).startswith(
-        "board_not_found:"
+        "invalid_argument:"
     )
     assert len(source.calls) == 1  # only the valid build fetched; the foreign link never did
     bad_rule = await error(client, "pb_warnings", plan_id=pid, rule_ids=["W999"])
@@ -296,6 +308,15 @@ async def test_render_html_and_read_the_resource(client: McpClient) -> None:
     assert len(page.encode()) == out.size_bytes
 
 
+async def test_render_can_expand_every_gantt_group(client: McpClient) -> None:
+    pid = await plan_id(client)
+    out = RenderOut.model_validate(
+        await call(client, "pb_render", plan_id=pid, report_id="gantt", expand=True)
+    )
+
+    assert out.media_type.startswith("text/html")
+
+
 async def test_render_xlsx_is_a_binary_resource(client: McpClient) -> None:
     pid = await plan_id(client)
     out = RenderOut.model_validate(
@@ -324,3 +345,109 @@ async def test_render_errors(client: McpClient) -> None:
     )
     with pytest.raises(Exception, match="expired|unknown"):
         await client.read_resource("pulseboard://exports/" + "0" * 32)
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("pb_workload", {"weeks": 0}),
+        ("pb_workload", {"weeks": -1}),
+        ("pb_workload", {"account_id": "nobody"}),
+        ("pb_flow_metrics", {"window_days": 0}),
+        ("pb_flow_metrics", {"window_days": -5}),
+        ("pb_forecast", {"scope": "epic"}),
+        ("pb_forecast", {"scope": "milestone", "scope_id": 999}),
+    ],
+)
+async def test_bad_arguments_are_typed_errors(
+    client: McpClient, tool: str, args: dict[str, object]
+) -> None:
+    """PB-13: never a masked "Error calling tool", never a silent reinterpretation."""
+    pid = await plan_id(client)
+
+    text = await error(client, tool, plan_id=pid, **args)
+
+    assert text.startswith("invalid_argument:")
+
+
+@pytest.mark.parametrize("offset", ["\u00b2", "\u0661", "1" * 10, "-1", ""])
+async def test_forged_cursors_are_invalid(client: McpClient, offset: str) -> None:
+    """PB-13: only cursors this server issued decode (``²`` is a digit to ``str.isdigit``)."""
+    import base64
+
+    cursor = base64.urlsafe_b64encode(f"v1:{offset}".encode()).decode().rstrip("=")
+    pid = await plan_id(client)
+
+    assert (await error(client, "pb_milestones", plan_id=pid, cursor=cursor)).startswith(
+        "invalid_cursor:"
+    )
+
+
+async def test_empty_results_say_why(client: McpClient) -> None:
+    """PB-20: an empty list carries a note; a filled one does not."""
+    pid = await plan_id(client)
+
+    rules = ["W012_solver_wallclock_cap"]
+    empty = WarningsOut.model_validate(
+        await call(client, "pb_warnings", plan_id=pid, rule_ids=rules)
+    )
+    full = WarningsOut.model_validate(await call(client, "pb_warnings", plan_id=pid))
+    workload = Page[LoadOut].model_validate(await call(client, "pb_workload", plan_id=pid))
+
+    assert empty.page.items == []
+    assert empty.page.note == "No warning matches."
+    assert full.page.note is None
+    assert workload.items
+    assert workload.note is None
+
+
+async def test_build_timeout_explains_the_missing_plan(
+    cloud_site: Site, source: FakeSource, clock: Clock, tmp_path: Path
+) -> None:
+    """PB-12: plan_id null comes with partial_reason naming the timeout and the next step."""
+    import time
+    from datetime import timedelta
+
+    from pulseboard.engine.pyjobshop_scheduler import PyJobShopScheduler
+    from pulseboard.engine.scheduling import ScheduleRequest, ScheduleResult
+    from pulseboard.engine.warnings import load_rules
+    from pulseboard.mcp.server import build_server
+    from pulseboard.services.exports import DirectoryFiles, ExportService
+    from pulseboard.services.plan_service import PlanService
+    from pulseboard.settings import Limits
+    from pulseboard.sites import SiteRegistry
+
+    class Slow:
+        def solve(self, request: ScheduleRequest) -> ScheduleResult:
+            time.sleep(2.0)
+            return PyJobShopScheduler().solve(request)
+
+    settings = Settings(sites=(cloud_site,), limits=Limits(tool_timeout_s=0.5))
+    store = open_store(settings, "sqlite://")
+    service = PlanService(
+        settings=settings,
+        registry=SiteRegistry(settings.sites),
+        store=store,
+        source_for=lambda _site: source,
+        scheduler=Slow(),
+        rules=load_rules(),
+        clock=clock,
+        engine_version="0.1.0",
+    )
+    exports = ExportService(
+        plans=service,
+        store=store,
+        reports={},
+        exporters={},
+        files=DirectoryFiles(tmp_path),
+        retention=timedelta(days=1),
+        clock=clock,
+    )
+    async with Client(build_server(service, exports)) as client:
+        out = BuildPlanOut.model_validate(await call(client, "pb_build_plan", board_link=LINK))
+
+    assert out.plan_id is None
+    assert out.partial_flow is not None
+    assert out.partial_reason is not None
+    assert out.partial_reason.startswith("timeout:")
+    assert "pb_build_plan" in out.partial_reason

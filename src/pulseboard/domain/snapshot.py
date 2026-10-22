@@ -6,6 +6,7 @@ serializes, and hashes, identically.
 """
 
 import hashlib
+from collections.abc import Iterable
 from datetime import date
 from typing import Self
 
@@ -29,8 +30,8 @@ from pulseboard.domain.types import (
 )
 from pulseboard.domain.untrusted import UntrustedText
 
-SNAPSHOT_HASH_EXCLUDES = frozenset({"fetched_at"})
-"""Volatile fields left out of ``snapshot_hash``, so a refetch of unchanged data matches."""
+SNAPSHOT_HASH_EXCLUDES = frozenset({"fetched_at", "window_start"})
+"""Fetch bookkeeping left out of ``snapshot_hash``, so a refetch of unchanged data matches."""
 
 
 class BoardRef(BaseModel):
@@ -50,6 +51,9 @@ class Person(BaseModel):
 
     account_id: AccountId
     display_name: UntrustedText
+    username: str | None = None
+    """Data Center username, when it differs from the account identity (the user key);
+    people settings may name someone by it."""
     capacity: float = Field(gt=0, le=1)
     holiday_country: str
 
@@ -150,16 +154,63 @@ class Task(BaseModel):
     blocked_by: tuple[IssueId, ...] = ()
     """Blockers on the board(s) in the plan."""
     external_blockers: tuple[ExternalBlocker, ...] = ()
+    rank_value: str = ""
+    """The raw board rank (Jira lexorank); ``board_rank`` is derived from it board-wide."""
+    parent_issue_id: IssueId | None = None
+    """A subtask's parent; the parent is blocked by its subtasks on the board."""
+    link_blockers: tuple[ExternalBlocker, ...] = ()
+    """Every blocker named by a dependency link of this issue, on the board or not, as fetched.
+    ``blocked_by`` and ``external_blockers`` are derived from it board-wide (``link_board``)."""
 
     @field_validator("fix_version_ids", "blocked_by", mode="after")
     @classmethod
     def _sorted_ids(cls, value: tuple[int, ...]) -> tuple[int, ...]:
         return tuple(sorted(set(value)))
 
-    @field_validator("external_blockers", mode="after")
+    @field_validator("external_blockers", "link_blockers", mode="after")
     @classmethod
     def _sorted_blockers(cls, value: tuple[ExternalBlocker, ...]) -> tuple[ExternalBlocker, ...]:
-        return tuple(sorted(value, key=lambda b: b.issue_id))
+        unique = {b.issue_id: b for b in value}
+        return tuple(sorted(unique.values(), key=lambda b: b.issue_id))
+
+
+def link_board(tasks: Iterable[Task]) -> tuple[Task, ...]:
+    """Derive the fields that depend on the whole board (ADDENDUM-03 §1).
+
+    - ``board_rank``: position by raw rank, then issue ID.
+    - ``blocked_by``: link blockers on the board, plus the issue's subtasks on the board.
+    - ``external_blockers``: link blockers not on the board.
+
+    Run after every fetch *and* after an incremental delta is merged, so a merged snapshot
+    equals a full refetch.
+    """
+    found = list(tasks)
+    on_board = {t.issue_id for t in found}
+    subtasks: dict[IssueId, list[IssueId]] = {}
+    for t in found:
+        if t.parent_issue_id is not None and t.parent_issue_id in on_board:
+            subtasks.setdefault(t.parent_issue_id, []).append(t.issue_id)
+    order = sorted(found, key=lambda t: (t.rank_value, t.issue_id))
+    rank = {t.issue_id: position for position, t in enumerate(order)}
+    return tuple(
+        t.model_copy(
+            update={
+                "board_rank": rank[t.issue_id],
+                "blocked_by": tuple(
+                    sorted(
+                        {
+                            *subtasks.get(t.issue_id, ()),
+                            *(b.issue_id for b in t.link_blockers if b.issue_id in on_board),
+                        }
+                    )
+                ),
+                "external_blockers": tuple(
+                    b for b in t.link_blockers if b.issue_id not in on_board
+                ),
+            }
+        )
+        for t in found
+    )
 
 
 class StatusTransition(BaseModel):
@@ -210,6 +261,18 @@ class BoardSnapshot(BaseModel):
     transitions: tuple[StatusTransition, ...] = ()
     sprint_changes: tuple[SprintMembershipChange, ...] = ()
     fetched_at: UtcDatetime
+    settings_key: str = ""
+    """The source settings this snapshot was built with (``BoardSource.settings_key``)."""
+    window_start: date | None = None
+    """The earliest resolution date fetched (the history window). An incremental merge keeps
+    the window of the snapshot it extends; a later request for an earlier window reloads."""
+    link_types: tuple[str, ...] = ()
+    """Names of every issue link type seen on the board, for checking configured types."""
+
+    @field_validator("link_types", mode="after")
+    @classmethod
+    def _sort_link_types(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(value)))
 
     @field_validator("statuses", mode="after")
     @classmethod

@@ -18,7 +18,7 @@ from pulseboard.reports.base import (
     Table,
     base_layout,
 )
-from pulseboard.reports.gantt import gantt_figure
+from pulseboard.reports.gantt import epic_filter_banner, gantt_figure, visible_tasks
 
 LOW_CONFIDENCE_TITLE = "Sequence view: low confidence"
 GANTT_TITLE = "Delivery plan"
@@ -65,18 +65,34 @@ def _gantt(ctx: ReportContext) -> ReportResult:
     low = plan.forecast.method is ForecastMethod.MONTE_CARLO
     title = LOW_CONFIDENCE_TITLE if low else "Gantt"
     tasks = plan.scheduled_tasks
-    critical = sum(1 for t in tasks if t.critical)
-    last = max((t.end for t in tasks), default=plan.plan_date)
+    shown = visible_tasks(ctx, tasks)
+    critical = sum(1 for t in shown if t.critical)
+    last = max((t.end for t in shown), default=plan.plan_date)
     forecast = plan.forecast
+    board_forecast = (
+        f"Board forecast ({forecast.method.value}): P85 {forecast.p85}, "
+        f"{forecast.confidence.value}."
+    )
+    filtered = epic_filter_banner(ctx, tasks)
     summary = (
-        f"{len(tasks)} open tasks scheduled; the last ends {last}.",
-        f"{critical} tasks on the critical path.",
-        f"Forecast ({forecast.method.value}): P85 {forecast.p85}, {forecast.confidence.value}.",
+        (
+            f"{filtered}.",
+            f"Shown work ends {last}; {critical} of these tasks are critical."
+            if shown
+            else "No open tasks match this filter.",
+            board_forecast,
+        )
+        if filtered is not None
+        else (
+            f"{len(tasks)} open tasks scheduled; the last ends {last}.",
+            f"{critical} tasks on the critical path.",
+            f"Forecast ({forecast.method.value}): P85 {forecast.p85}, {forecast.confidence.value}.",
+        )
     )
     return ReportResult(
         report_id=ReportId.GANTT,
         title=title,
-        tables=(schedule_table(ctx, tasks, "schedule"),),
+        tables=(schedule_table(ctx, shown, "schedule"),),
         figure=gantt_figure(ctx, tasks, GANTT_TITLE),
         summary=summary,
         titled_figure=True,

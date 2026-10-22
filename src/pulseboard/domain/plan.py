@@ -32,7 +32,7 @@ from pulseboard.domain.types import (
 from pulseboard.domain.untrusted import UntrustedText
 from pulseboard.timezones import TimeZoneName
 
-PLAN_SCHEMA_VERSION = "1.0.0"
+PLAN_SCHEMA_VERSION = "1.1.0"
 """SemVer of the plan schema (ADR-011)."""
 
 
@@ -149,7 +149,9 @@ class Plan(BaseModel):
     scheduled_tasks: tuple[ScheduledTask, ...]
     dependency_edges: tuple[DependencyEdge, ...]
     critical_paths: tuple[tuple[IssueId, ...], ...]
-    """Every critical chain, longest first (DESIGN §10.5)."""
+    """Every critical chain, longest first (DESIGN §10.5), up to ``limits.max_critical_paths``."""
+    critical_paths_truncated: bool = False
+    """More critical chains exist than the cap kept (the longest are kept)."""
     forecast: Forecast
     """The primary projection (DESIGN §3.1)."""
     secondary_forecast: Forecast | None = None

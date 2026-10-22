@@ -13,6 +13,7 @@ reflects work already done.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 
 from pulseboard.domain.snapshot import BoardSnapshot, Task
 from pulseboard.domain.types import EffortSource, IssueId, SprintState, StatusCategory
@@ -28,17 +29,43 @@ class Effort:
     source: EffortSource
 
 
+class RateSource(StrEnum):
+    """Where the story-points rate came from."""
+
+    FIXED = "fixed"
+    VELOCITY = "velocity"
+    FALLBACK = "fallback"
+    """Velocity mode without a closed sprint with completed points (warning W017)."""
+
+
+@dataclass(frozen=True)
+class PointsRate:
+    """Story points one person completes per working day, and where that came from."""
+
+    per_day: float
+    source: RateSource
+    sprints: int = 0
+    """Closed sprints with completed points behind a velocity rate."""
+
+
 def points_per_day(
     snapshot: BoardSnapshot, calendar: WorkCalendar, policy: PointsPolicy, time_zone: str
 ) -> float:
-    """Story points one person completes per working day.
+    """Story points one person completes per working day (see ``points_rate``)."""
+    return points_rate(snapshot, calendar, policy, time_zone).per_day
+
+
+def points_rate(
+    snapshot: BoardSnapshot, calendar: WorkCalendar, policy: PointsPolicy, time_zone: str
+) -> PointsRate:
+    """Story points one person completes per working day, with its source.
 
     Fixed mode returns the configured rate. Velocity mode divides the points completed in the
     last ``velocity_sprints`` closed sprints by the person-days worked in them (sprint working
     days × distinct assignees who completed points), falling back when there is no history.
     """
     if policy.mode is PointsMode.FIXED and policy.fixed_points_per_day is not None:
-        return policy.fixed_points_per_day
+        return PointsRate(policy.fixed_points_per_day, RateSource.FIXED)
     closed = sorted(
         (
             (s.end, s.sprint_id, s.start)
@@ -49,6 +76,7 @@ def points_per_day(
     )[: policy.velocity_sprints]
     points = 0.0
     person_days = 0
+    used = 0
     for end, sprint_id, start in closed:
         done = [
             t
@@ -64,9 +92,10 @@ def points_per_day(
         )
         points += sum(t.story_points or 0.0 for t in done)
         person_days += days * len({t.assignee for t in done})
+        used += 1
     if points <= 0 or person_days <= 0:
-        return policy.fallback_points_per_day
-    return points / person_days
+        return PointsRate(policy.fallback_points_per_day, RateSource.FALLBACK)
+    return PointsRate(points / person_days, RateSource.VELOCITY, used)
 
 
 def effort_for(

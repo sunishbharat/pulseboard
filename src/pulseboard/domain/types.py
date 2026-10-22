@@ -20,6 +20,12 @@ AccountId = NewType("AccountId", str)
 PlanId = NewType("PlanId", str)
 ExportId = NewType("ExportId", str)
 
+
+def jira_name_key(name: str) -> str:
+    """How Jira names (link types, statuses, fields) are compared: trimmed, case-insensitive."""
+    return name.strip().casefold()
+
+
 # ---------------------------------------------------------------- units
 
 WorkingDays = NewType("WorkingDays", float)
@@ -181,6 +187,9 @@ class WarningId(StrEnum):
     SOLVER_WALLCLOCK_CAP = "W012_solver_wallclock_cap"
     STALE_PLAN = "W013_stale_plan"
     AGING_WIP = "W014_aging_wip"
+    UNKNOWN_LINK_TYPE = "W015_unknown_link_type"
+    UNKNOWN_PERSON = "W016_unknown_person"
+    POINTS_RATE_FALLBACK = "W017_points_rate_fallback"
 
 
 # DESIGN §3

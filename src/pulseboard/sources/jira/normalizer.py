@@ -1,15 +1,21 @@
 """Jira data → ``BoardSnapshot`` (DESIGN §4.2 Normalizer). Pure: no I/O.
 
 - Identity is the issue ID and the account ID (Data Center: user key), never key or name.
-- Link direction: an issue with an inward link of a dependency type (default ``Blocks``,
-  "is blocked by") is blocked by the linked issue. Linked issues not fetched with the board
-  become external blockers.
+- Link direction: each configured dependency link type names its blocking end (ADDENDUM-03
+  §3). ``Blocks`` blocks from the inward end ("is blocked by"). Type names match trimmed and
+  case-insensitively. Every blocker an issue names is kept in ``link_blockers``.
 - Subtasks: dropped when ``include_subtasks`` is off; otherwise scheduled as tasks, and their
   parent is blocked by them (the parent finishes after its subtasks).
+- Board-wide fields (on-board vs external blockers, subtask edges, board rank) are derived by
+  ``link_board`` from per-issue data, so an incremental fetch merged later gives the same
+  result as a full fetch (ADDENDUM-03 §1).
+- People settings match the assignee's identity, or on Data Center their username.
 - Changelog → status transitions and sprint-membership changes, deduplicated by entry ID.
 - Unparseable estimates become ``None`` with ``invalid_estimate`` set (warning W004).
 """
 
+import hashlib
+import json
 from collections.abc import Mapping
 from datetime import date, datetime
 
@@ -27,6 +33,7 @@ from pulseboard.domain.snapshot import (
     StatusTransition,
     Task,
     Version,
+    link_board,
 )
 from pulseboard.domain.types import (
     AccountId,
@@ -41,14 +48,18 @@ from pulseboard.domain.types import (
     SprintState,
     StatusCategory,
     VersionId,
+    jira_name_key,
 )
 from pulseboard.domain.untrusted import UntrustedText
-from pulseboard.settings import TeamSettings
+from pulseboard.settings import LinkBlocker, PersonSettings, TeamSettings
 from pulseboard.sources.jira.models import (
     JiraBoardData,
     JiraHistory,
     JiraIssue,
+    JiraLink,
+    JiraLinkedIssue,
     JiraStatus,
+    JiraUser,
 )
 
 _CATEGORY = {
@@ -65,6 +76,8 @@ _TIME_ESTIMATE_FIELD = "timeoriginalestimate"
 _RANK_SCHEMA = "com.pyxis.greenhopper.jira:gh-lexo-rank"
 _EPIC_TYPE = "epic"
 _SECONDS_PER_HOUR = 3600
+_SHAPING_VERSION = 2
+"""Bumped when snapshot shaping changes, so snapshots stored by older code are reloaded."""
 
 
 def category_of(status: JiraStatus) -> StatusCategory:
@@ -113,17 +126,33 @@ def _sprint(raw_id: int, data: JiraBoardData) -> Sprint | None:
     return None
 
 
-def _rank_order(data: JiraBoardData, issues: list[JiraIssue]) -> dict[str, int]:
-    rank_field = next(
-        (f.id for f in data.fields if f.schema_ and f.schema_.custom == _RANK_SCHEMA), None
-    )
+def _rank_field(data: JiraBoardData) -> str | None:
+    return next((f.id for f in data.fields if f.schema_ and f.schema_.custom == _RANK_SCHEMA), None)
 
-    def key(position: int, issue: JiraIssue) -> tuple[str, int]:
-        value = issue.fields.custom_value(rank_field) if rank_field else None
-        return (value if isinstance(value, str) else "", position)
 
-    ordered = sorted(enumerate(issues), key=lambda pair: key(*pair))
-    return {issue.id: rank for rank, (_, issue) in enumerate(ordered)}
+def _rank_value(issue: JiraIssue, rank_field: str | None) -> str:
+    value = issue.fields.custom_value(rank_field) if rank_field else None
+    return value if isinstance(value, str) else ""
+
+
+def _blocker(link: JiraLink, blockers: Mapping[str, LinkBlocker]) -> JiraLinkedIssue | None:
+    """The issue that blocks this one through ``link``, if its type is a dependency type."""
+    side = blockers.get(jira_name_key(link.type.name))
+    if side is LinkBlocker.INWARD:
+        return link.inward_issue
+    if side is LinkBlocker.OUTWARD:
+        return link.outward_issue
+    return None
+
+
+def _person_settings(
+    user: JiraUser, configured: Mapping[str, PersonSettings]
+) -> PersonSettings | None:
+    """Settings for an assignee: by identity, else (Data Center) by username, case-insensitive."""
+    found = configured.get(user.identity or "")
+    if found is None and user.name:
+        found = configured.get(jira_name_key(user.name))
+    return found
 
 
 def _epic_id(issue: JiraIssue) -> IssueId | None:
@@ -177,6 +206,22 @@ def _changes(
     return transitions, sprint_changes
 
 
+def settings_key(team: TeamSettings) -> str:
+    """Key of the team settings that shape a snapshot here: link types (compared as Jira names
+    are, with their blocking end), subtasks and the people settings applied to assignees."""
+    shaping = {
+        "version": _SHAPING_VERSION,
+        "dependency_link_types": sorted(
+            {f"{jira_name_key(t.name)}:{t.blocker.value}" for t in team.dependency_link_types}
+        ),
+        "include_subtasks": team.include_subtasks,
+        "people": sorted(p.model_dump_json() for p in team.people),
+        "default_capacity": team.default_capacity,
+        "default_holiday_country": team.default_holiday_country,
+    }
+    return hashlib.sha256(json.dumps(shaping).encode()).hexdigest()[:16]
+
+
 def normalize(
     data: JiraBoardData,
     *,
@@ -188,16 +233,14 @@ def normalize(
     """Build the snapshot for one board."""
     mode, estimation_field = _estimation(data)
     issues = [i for i in data.issues if team.include_subtasks or not i.fields.issuetype.subtask]
-    on_board = {i.id for i in issues}
-    rank = _rank_order(data, issues)
-    link_types = set(team.dependency_link_types)
-    subtasks_of: dict[str, list[IssueId]] = {}
-    for issue in issues:
-        parent = issue.fields.parent
-        if issue.fields.issuetype.subtask and parent and parent.id in on_board:
-            subtasks_of.setdefault(parent.id, []).append(IssueId(int(issue.id)))
+    rank_field = _rank_field(data)
+    blockers = {jira_name_key(t.name): t.blocker for t in team.dependency_link_types}
+    link_types = {link.type.name for i in issues for link in i.fields.issuelinks}
 
-    configured = {p.account_id: p for p in team.people}
+    configured: dict[str, PersonSettings] = {}
+    for p in team.people:
+        configured[p.account_id] = p
+        configured.setdefault(jira_name_key(p.account_id), p)
     people: dict[AccountId, Person] = {}
     tasks: list[Task] = []
     transitions: list[StatusTransition] = []
@@ -206,13 +249,12 @@ def normalize(
         f = issue.fields
         issue_id = IssueId(int(issue.id))
         assignee = AccountId(f.assignee.identity) if f.assignee and f.assignee.identity else None
-        if assignee and assignee not in people:
-            settings = configured.get(assignee)
+        if f.assignee and assignee and assignee not in people:
+            settings = _person_settings(f.assignee, configured)
             people[assignee] = Person(
                 account_id=assignee,
-                display_name=UntrustedText(f.assignee.display_name or assignee)
-                if f.assignee
-                else UntrustedText(assignee),
+                display_name=UntrustedText(f.assignee.display_name or assignee),
+                username=f.assignee.name if f.assignee.name != assignee else None,
                 capacity=(
                     settings.capacity if settings and settings.capacity else team.default_capacity
                 ),
@@ -222,23 +264,20 @@ def normalize(
                     else team.default_holiday_country
                 ),
             )
-        blocked_by: list[IssueId] = list(subtasks_of.get(issue.id, []))
-        external: list[ExternalBlocker] = []
+        link_blockers: list[ExternalBlocker] = []
         for link in f.issuelinks:
-            other = link.inward_issue
-            if link.type.name not in link_types or other is None:
+            other = _blocker(link, blockers)
+            if other is None or other.id == issue.id:
                 continue
-            if other.id in on_board:
-                blocked_by.append(IssueId(int(other.id)))
-            else:
-                status = other.fields.status
-                external.append(
-                    ExternalBlocker(
-                        issue_id=IssueId(int(other.id)),
-                        issue_key=IssueKey(other.key),
-                        status_category=category_of(status) if status else StatusCategory.TO_DO,
-                    )
+            status = other.fields.status
+            link_blockers.append(
+                ExternalBlocker(
+                    issue_id=IssueId(int(other.id)),
+                    issue_key=IssueKey(other.key),
+                    status_category=category_of(status) if status else StatusCategory.TO_DO,
                 )
+            )
+        parent = f.parent
         points, invalid = (
             coerce_points(f.custom_value(estimation_field))
             if mode is EstimationMode.STORY_POINTS and estimation_field
@@ -255,7 +294,7 @@ def normalize(
                 status=UntrustedText(f.status.name),
                 status_category=category_of(f.status),
                 assignee=assignee,
-                board_rank=rank[issue.id],
+                board_rank=0,
                 priority=UntrustedText(f.priority.name) if f.priority else None,
                 story_points=points,
                 invalid_estimate=invalid,
@@ -267,8 +306,11 @@ def normalize(
                 sprint_id=SprintId(f.sprint.id) if f.sprint else None,
                 epic_issue_id=_epic_id(issue),
                 fix_version_ids=tuple(VersionId(int(v.id)) for v in f.fix_versions),
-                blocked_by=tuple(blocked_by),
-                external_blockers=tuple(external),
+                rank_value=_rank_value(issue, rank_field),
+                parent_issue_id=(
+                    IssueId(int(parent.id)) if f.issuetype.subtask and parent else None
+                ),
+                link_blockers=tuple(link_blockers),
             )
         )
         found_transitions, found_sprint_changes = _changes(
@@ -317,8 +359,10 @@ def normalize(
             )
             for e in data.epics
         ),
-        tasks=tuple(tasks),
+        tasks=link_board(tasks),
         transitions=tuple({(t.issue_id, t.entry_id): t for t in transitions}.values()),
         sprint_changes=tuple(sprint_changes),
         fetched_at=fetched_at,
+        settings_key=settings_key(team),
+        link_types=tuple(link_types),
     )

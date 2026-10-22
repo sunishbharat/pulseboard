@@ -103,6 +103,10 @@ class KnownAccountSource:
         """The caller's account, from the identity cache."""
         return self.account
 
+    def settings_key(self) -> str:
+        """The wrapped source's settings key."""
+        return self.source.settings_key()
+
     def fetch_snapshot(
         self,
         board_id: BoardId,
@@ -256,6 +260,7 @@ def create_hosted_app(  # noqa: PLR0913 - the injected collaborators
         clock=clock,
         engine_version=__version__,
         owner=current_account,
+        memoize=False,  # the store's TTL is a plan's lifetime; a memo would outlive it
         reuse_sources=False,
         stale_plans=False,
         solve_slots=solve_slots,

@@ -4,6 +4,8 @@
   configuration, the field and status catalogues, sprints and versions.
 - ``tenacity`` retries throttled (429) and failed (5xx, connection) calls, honoring Retry-After.
 - ``pyrate-limiter`` throttles requests per site. Calls are sequential (≤ the per-site limit).
+- Changelogs come a page of issues at a time from a JQL search with ``expand=changelog``; only an
+  issue whose changelog Jira truncated (Cloud: 100 entries) is fetched again on its own.
 - Redirects to any other origin are refused. Errors map to typed codes (DESIGN §12.5).
 - Request profiles (DESIGN §9.8): every request carries the Pulseboard User-Agent (with the site's
   contact, if set); polite sites back off longer, stop after a few 429s in a row, and never call a
@@ -13,7 +15,7 @@
 """
 
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime
 from pathlib import Path
 from typing import Protocol, TypeVar
@@ -63,7 +65,7 @@ from pulseboard.sources.jira.models import (
     JiraValuesPage,
     JiraVersion,
 )
-from pulseboard.sources.jira.normalizer import normalize
+from pulseboard.sources.jira.normalizer import normalize, settings_key
 
 M = TypeVar("M", bound=BaseModel)
 T = TypeVar("T")
@@ -421,7 +423,35 @@ class JiraSource:
             if not page.issues or len(found) >= page.total:
                 return tuple(found)
 
+    def _search(
+        self,
+        jql: str,
+        query: Mapping[str, object],
+        page_model: type[JiraSearchPage[T]],
+        page_size: int,
+    ) -> tuple[T, ...]:
+        """Every issue a JQL search finds: token paging on Cloud, offset paging on DC."""
+        found: list[T] = []
+        if self._site.deployment is Deployment.CLOUD:
+            token: str | None = None
+            while True:
+                params = {"jql": jql, **query, "maxResults": page_size}
+                if token:
+                    params["nextPageToken"] = token
+                page = self.get("rest/api/3/search/jql", page_model, params)
+                found.extend(page.issues)
+                token = page.next_page_token
+                if not token or not page.issues:
+                    return tuple(found)
+        while True:
+            params = {"jql": jql, **query, "startAt": len(found), "maxResults": page_size}
+            page = self.get("rest/api/2/search", page_model, params)
+            found.extend(page.issues)
+            if not page.issues or page.total is None or len(found) >= page.total:
+                return tuple(found)
+
     def _histories(self, issue_id: str) -> tuple[JiraHistory, ...]:
+        """One issue's full changelog, for an issue whose search result was truncated."""
         if self._site.deployment is Deployment.CLOUD:
             return self._values(
                 f"rest/api/2/issue/{issue_id}/changelog", JiraValuesPage[JiraHistory]
@@ -433,27 +463,35 @@ class JiraSource:
         )
         return issue.changelog.histories
 
+    def _changelogs(
+        self, issue_ids: Sequence[str], progress: Progress | None
+    ) -> dict[str, tuple[JiraHistory, ...]]:
+        """Changelogs by issue ID, a page of issues per search with ``expand=changelog``;
+        only truncated changelogs are fetched again per issue."""
+        found: dict[str, tuple[JiraHistory, ...]] = {}
+        size = self._limits.jira_page_size
+        for start in range(0, len(issue_ids), size):
+            chunk = issue_ids[start : start + size]
+            jql = f"id in ({', '.join(chunk)})"
+            query = {"fields": "status", "expand": "changelog"}
+            for issue in self._search(jql, query, JiraSearchPage[JiraIssueWithChangelog], size):
+                log = issue.changelog
+                entries = self._histories(issue.id) if log.truncated else log.histories
+                unique = {h.id: h for h in entries}
+                found[issue.id] = tuple(sorted(unique.values(), key=lambda h: (h.created, h.id)))
+            if progress:
+                progress("changelogs", start + len(chunk), len(issue_ids))
+        return found
+
     def _epic_due_dates(self, epics: Iterable[JiraEpic]) -> tuple[JiraDueDateIssue, ...]:
         keys = [e.key for e in epics if not e.done]
         found: list[JiraDueDateIssue] = []
         for start in range(0, len(keys), _EPIC_SEARCH_CHUNK):
             jql = f"issuekey in ({', '.join(keys[start : start + _EPIC_SEARCH_CHUNK])})"
-            if self._site.deployment is Deployment.CLOUD:
-                token: str | None = None
-                while True:
-                    query: dict[str, object] = {"jql": jql, "fields": "duedate"}
-                    if token:
-                        query["nextPageToken"] = token
-                    page = self.get("rest/api/3/search/jql", JiraSearchPage, query)
-                    found.extend(page.issues)
-                    token = page.next_page_token
-                    if not token:
-                        break
-            else:
-                page = self.get(
-                    "rest/api/2/search", JiraSearchPage, {"jql": jql, "fields": "duedate"}
-                )
-                found.extend(page.issues)
+            query = {"fields": "duedate"}
+            found.extend(
+                self._search(jql, query, JiraSearchPage[JiraDueDateIssue], _EPIC_SEARCH_CHUNK)
+            )
         return tuple(found)
 
     def fetch_board(
@@ -493,15 +531,12 @@ class JiraSource:
             jql += f' AND updated >= "{jql_datetime(updated_since, myself.time_zone)}"'
         issues = self._issues(board_id, jql, sorted({*BASE_FIELDS, *extra_fields}), progress)
 
-        histories: dict[str, tuple[JiraHistory, ...]] = {}
         changed = [
-            i for i in issues if i.fields.updated is None or i.fields.updated.date() >= window_start
+            i.id
+            for i in issues
+            if i.fields.updated is None or i.fields.updated.date() >= window_start
         ]
-        for done, issue in enumerate(changed, start=1):
-            unique = {h.id: h for h in self._histories(issue.id)}
-            histories[issue.id] = tuple(sorted(unique.values(), key=lambda h: (h.created, h.id)))
-            if progress:
-                progress("changelogs", done, len(changed))
+        histories = self._changelogs(changed, progress)
         return JiraBoardData(
             myself=myself,
             board=board,
@@ -558,6 +593,10 @@ class JiraBoardSource:
                 raise AuthFailedError(msg)
             self._account = AccountId(identity)
         return self._account
+
+    def settings_key(self) -> str:
+        """Key of the team settings the normalizer applies (link types, subtasks)."""
+        return settings_key(self._team)
 
     def fetch_snapshot(
         self,

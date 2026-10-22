@@ -1,7 +1,8 @@
 """Monte Carlo forecaster (DESIGN §10.7) and confidence policy (§3.1)."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -43,7 +44,7 @@ def test_weekly_throughput_hand_computed() -> None:
         resolved(5, date(2026, 10, 20)),  # after the plan date: ignored
         task(6, created=datetime(2026, 9, 1, tzinfo=UTC)),  # open: ignored
     )
-    throughput = weekly_throughput(tasks, PLAN, "UTC", history_weeks=12)
+    throughput = weekly_throughput(tasks, PLAN, "UTC", history_weeks=12, window_days=None)
 
     assert throughput.weekly == (0, 0, 0, 1, 0, 1, 2)
     assert throughput.weeks == 7
@@ -52,8 +53,8 @@ def test_weekly_throughput_hand_computed() -> None:
 def test_history_is_capped_at_the_setting() -> None:
     tasks = (resolved(1, date(2026, 10, 19)),)
 
-    assert weekly_throughput(tasks, PLAN, "UTC", history_weeks=3).weeks == 3
-    assert weekly_throughput((), PLAN, "UTC", history_weeks=3).weeks == 0
+    assert weekly_throughput(tasks, PLAN, "UTC", history_weeks=3, window_days=None).weeks == 3
+    assert weekly_throughput((), PLAN, "UTC", history_weeks=3, window_days=None).weeks == 0
 
 
 def test_fixed_seed_reproduces_percentiles() -> None:
@@ -152,3 +153,35 @@ def test_schedule_stays_primary_without_throughput() -> None:
 
     assert primary.method is ForecastMethod.SCHEDULE
     assert secondary is None
+
+
+def steady(weeks: int) -> list[Task]:
+    """Two resolutions every week for ``weeks`` weeks up to the plan date (board from 2025)."""
+    return [
+        resolved(100 * week + n, PLAN - timedelta(days=7 * week + n)).model_copy(
+            update={"created": datetime(2025, 1, 1, tzinfo=UTC)}
+        )
+        for week in range(weeks)
+        for n in range(2)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("window_days", "weeks", "capped"),
+    [(83, 11, True), (84, 12, False), (85, 12, False), (30, 4, True)],
+)
+def test_history_never_reaches_past_the_fetch_window(
+    window_days: int, weeks: int, capped: bool
+) -> None:
+    """PB-08: resolutions older than the window were never fetched, so those weeks are left out
+    instead of counted as zero; the forecast says the history was capped."""
+    tasks = [t for t in steady(20) if (PLAN - t.resolved.date()).days <= window_days]  # type: ignore[union-attr]
+
+    found = weekly_throughput(tasks, PLAN, "UTC", 12, window_days)
+    forecast = monte_carlo_forecast(40, found, CAL, trials=500, seed=1, min_history_weeks=4)
+
+    assert found.weeks == weeks
+    assert 0 not in found.weekly
+    assert (found.capped_from == 12) is capped
+    assert forecast is not None
+    assert ("capped from 12" in forecast.confidence_reason) is capped

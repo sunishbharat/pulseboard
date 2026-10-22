@@ -16,10 +16,15 @@ from pulseboard import __version__
 from pulseboard.app import EXPORTS_DIR, create_app, open_store, utc_now
 from pulseboard.cli import site as site_commands
 from pulseboard.cli.console import Console
-from pulseboard.credentials import SystemKeychain, WritableKeychain
+from pulseboard.credentials import (
+    SystemKeychain,
+    WritableKeychain,
+    credential_fields,
+    env_var_name,
+)
 from pulseboard.domain.types import AccountId, SiteId
 from pulseboard.errors import ConfigError
-from pulseboard.hosted.config import Transport, transport_from
+from pulseboard.hosted.config import HOSTED_VARIABLES, Transport, transport_from
 from pulseboard.settings import (
     CONFIG_PATH_ENV,
     Settings,
@@ -28,6 +33,7 @@ from pulseboard.settings import (
     default_data_dir,
     load_settings,
     locate_settings,
+    unknown_variables,
 )
 from pulseboard.store.repository import SnapshotStore
 
@@ -143,6 +149,8 @@ def main(
         console.warn(exc.message)
         return 2
 
+    if args.command in ("config", "serve", None):
+        _warn_unknown_variables(settings, environ, console)
     match args.command:
         case "config":
             sites = len(settings.sites)
@@ -171,6 +179,21 @@ def main(
                 console.warn(_NO_SITES_HINT)
             create_app(settings, environ=environ, keychain=chain).server.run()
             return 0
+
+
+def _warn_unknown_variables(
+    settings: Settings, environ: Mapping[str, str], console: Console
+) -> None:
+    """Name ``PULSEBOARD_*`` variables that set nothing (ADDENDUM-03 §13), never their values."""
+    credentials = {
+        env_var_name(site, field) for site in settings.sites for field in credential_fields(site)
+    }
+    for name in unknown_variables(environ, credentials | HOSTED_VARIABLES):
+        console.warn(
+            f"Warning: {name} is not a Pulseboard setting, credential or hosted variable, so it "
+            "is ignored. Settings use PULSEBOARD_<SECTION>__<FIELD>, for example "
+            "PULSEBOARD_TEAM__TIME_ZONE."
+        )
 
 
 def _transport(environ: Mapping[str, str], console: Console) -> Transport | None:

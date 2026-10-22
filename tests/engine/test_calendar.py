@@ -97,6 +97,7 @@ def test_working_days_helpers() -> None:
     assert cal.add_working_days(date(2026, 10, 23), 1) == date(2026, 10, 26)
     assert cal.units_to_working_days(5) == 2.5
     assert cal.horizon_units == 2 * cal.working_days_between(cal.origin, date(2028, 1, 1))
+    assert cal.last_day == date(2027, 12, 31)
 
 
 def test_local_date_uses_team_time_zone() -> None:

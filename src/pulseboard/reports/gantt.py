@@ -6,7 +6,8 @@ Both subplots share one numeric y-axis (row ``i`` at ``y = i``), so rows align e
 """
 
 import html
-from collections.abc import Iterable, Sequence
+import math
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
@@ -63,6 +64,8 @@ TABLE_COLUMNS: tuple[tuple[str, int], ...] = (
     ("Resource", 84),
 )
 """Column headers and widths in pixels at the reference width; "Task name" takes the rest."""
+PRED_MAX_PX = 180
+"""The Pred. column widens to fit its longest cell, up to this; "Task name" gives way."""
 YEAR_PX = 16
 """Extra width of the Start and Finish columns when dates show the year."""
 REASONS = {
@@ -98,6 +101,8 @@ class Row:
     milestone: MilestoneForecast | None = None
     predecessors: tuple[IssueId, ...] = ()
     children: int = 0
+    members: tuple[IssueId, ...] = ()
+    """A summary row's tasks; a collapsed group stands in for them in link lines."""
     number: int = 0
     labels: list[str] = field(default_factory=list)
 
@@ -127,6 +132,17 @@ def _fit(text: str, chars: int) -> str:
     return text if len(text) <= chars else text[: max(chars - 1, 1)] + "…"
 
 
+def _fit_tokens(tokens: Sequence[str], chars: int) -> str:
+    """Comma-joined identifiers that fit in ``chars``; never cut inside one (ADDENDUM-03 §12).
+    What does not fit is counted: ``ABC-7,XYZ-9 (ext) +2``."""
+    for shown in range(len(tokens), 0, -1):
+        rest = len(tokens) - shown
+        text = ",".join(tokens[:shown]) + (f" +{rest}" if rest else "")
+        if len(text) <= chars:
+            return text
+    return f"+{len(tokens)}" if tokens else ""
+
+
 def _monday(day: date) -> date:
     return day - timedelta(days=day.weekday())
 
@@ -144,7 +160,8 @@ def _progress(source: Task | None) -> tuple[float, str]:
     return share, "from status"
 
 
-def _visible(ctx: ReportContext, tasks: Sequence[ScheduledTask]) -> list[ScheduledTask]:
+def visible_tasks(ctx: ReportContext, tasks: Sequence[ScheduledTask]) -> list[ScheduledTask]:
+    """The tasks the chart's filters let through (§6.6); all of them without filters."""
     options = ctx.chart
 
     def epic(t: ScheduledTask) -> IssueId | None:
@@ -169,6 +186,9 @@ class Names:
 
     def person(self, account_id: AccountId | None) -> str:
         return self.people.get(account_id, account_id) if account_id else UNASSIGNED
+
+    def epic(self, issue_id: IssueId | None) -> str:
+        return self.epics.get(issue_id, f"Epic {issue_id}") if issue_id is not None else NO_EPIC
 
 
 def _names(ctx: ReportContext) -> Names:
@@ -245,13 +265,14 @@ def _summary(name: str, children: Sequence[Row], ctx: ReportContext) -> Row:
         progress=done / effort if effort else 0.0,
         effort=effort,
         children=sum(1 for r in children if r.kind is RowKind.TASK),
+        members=tuple(r.task.issue_id for r in children if r.task),
     )
 
 
 def build_rows(ctx: ReportContext, tasks: Sequence[ScheduledTask]) -> tuple[list[Row], bool]:
     """The ordered rows (§6.4) and whether groups are collapsed (§8)."""
     options, names = ctx.chart, _names(ctx)
-    visible = _visible(ctx, tasks)
+    visible = visible_tasks(ctx, tasks)
     task_rows = {
         t.issue_id: _task_row(ctx, t, names, options.group_by is GroupBy.EPIC) for t in visible
     }
@@ -273,8 +294,7 @@ def build_rows(ctx: ReportContext, tasks: Sequence[ScheduledTask]) -> tuple[list
     for row in order:
         source, task = row.source, row.task
         if options.group_by is GroupBy.EPIC:
-            epic = source.epic_issue_id if source else None
-            key = names.epics.get(epic, f"Epic {epic}") if epic is not None else NO_EPIC
+            key = names.epic(source.epic_issue_id if source else None)
         else:
             key = names.person(task.lane if task else None)
         groups.setdefault(key, []).append(row)
@@ -417,6 +437,77 @@ def link_path(
     ]
 
 
+@dataclass(frozen=True)
+class Link:
+    """One link line: out of ``before`` (``None``: a hidden predecessor) into ``row``."""
+
+    predecessor: IssueId
+    before: Row | None
+    row: Row
+    finish_ms: int
+    """The end of the predecessor's last day."""
+    start_ms: int
+    """The start of the successor's first day (a milestone: the end of its day)."""
+    critical: bool
+
+
+def link_list(ctx: ReportContext, rows: Sequence[Row]) -> tuple[list[Link], int]:
+    """The link lines of the shown rows (§6.5), and how many dependencies they stand for.
+
+    A collapsed group stands in for its tasks: a link between two groups runs from the
+    predecessor's finish on its group row into the successor's start on the other, one line
+    per pair of rows (critical first, then the latest finish). Links inside one collapsed
+    group are not drawn. A predecessor on no shown row gets a "hidden" stub.
+    """
+    tasks = {t.issue_id: t for t in ctx.plan.scheduled_tasks}
+    anchor = {r.task.issue_id: r for r in rows if r.task}
+    for r in rows:
+        for member in r.members:
+            anchor.setdefault(member, r)  # only when the group is collapsed
+    preds_of: dict[IssueId, list[IssueId]] = {}
+    for e in ctx.plan.dependency_edges:
+        preds_of.setdefault(e.successor, []).append(e.predecessor)
+
+    wanted: list[tuple[IssueId, bool, Row, int]] = []
+    for row in rows:
+        if row.kind is RowKind.MILESTONE:
+            start = _ms(row.start + timedelta(days=1))
+            wanted += [(p, row.critical, row, start) for p in row.predecessors]
+        elif row.task:
+            wanted += [(p, row.critical, row, _ms(row.start)) for p in row.predecessors]
+        else:
+            for member in row.members:
+                if anchor[member] is row:
+                    t = tasks[member]
+                    wanted += [
+                        (p, t.critical, row, _ms(t.start)) for p in sorted(preds_of.get(member, ()))
+                    ]
+
+    best: dict[tuple[int, int, int], Link] = {}
+    for pred, successor_critical, row, start in wanted:
+        before = anchor.get(pred)
+        if before is row or pred not in tasks:
+            continue
+        before_task = tasks[pred]
+        link = Link(
+            pred,
+            before,
+            row,
+            _ms(before_task.end + timedelta(days=1)),
+            start,
+            before_task.critical and successor_critical,
+        )
+        key = (row.number, before.number, 0) if before else (row.number, 0, pred)
+        kept = best.get(key)
+        if kept is None or (link.critical, link.finish_ms, -link.start_ms) > (
+            kept.critical,
+            kept.finish_ms,
+            -kept.start_ms,
+        ):
+            best[key] = link
+    return list(best.values()), len(wanted)
+
+
 def _svg_path(points: Iterable[tuple[int, float]]) -> str:
     return " ".join(f"{'M' if i == 0 else 'L'}{x},{y:g}" for i, (x, y) in enumerate(points))
 
@@ -457,6 +548,7 @@ def _hover(ctx: ReportContext, row: Row, numbers: dict[IssueId, int], names: Nam
         f"{_short(t.start, years)} → {_short(t.end, years)} · "
         f"{t.duration_working_days:g} working days ({_effort(t, source)})",
         _reason(ctx, t, numbers, names),
+        *_external_lines(source),
         f"Slack: {t.total_float_working_days:g} days · Status: {status} · "
         f"{progress:.0%} complete ({method})",
     ]
@@ -464,6 +556,21 @@ def _hover(ctx: ReportContext, row: Row, numbers: dict[IssueId, int], names: Nam
         behind = ctx.calendar.working_days_between(source.due_date, t.end)
         lines.append(f"Due {_short(source.due_date, years)} – {behind:g} working days late")
     return "<br>".join(lines)
+
+
+_CATEGORY_NAMES = {StatusCategory.TO_DO: "To Do", StatusCategory.IN_PROGRESS: "In Progress"}
+
+
+def _external_lines(source: Task | None) -> list[str]:
+    """Open blockers outside the board: the schedule cannot wait for them (warning W002)."""
+    if source is None:
+        return []
+    return [
+        f"Blocked by {b.issue_key} (outside the board, {_CATEGORY_NAMES[b.status_category]}); "
+        "not scheduled, so this start may be too early"
+        for b in source.external_blockers
+        if b.status_category is not StatusCategory.DONE
+    ]
 
 
 def _effort(t: ScheduledTask, source: Task | None) -> str:
@@ -525,12 +632,36 @@ def _spans_years(rows: Sequence[Row]) -> bool:
     return len({d.year for r in rows for d in (r.start, r.end)}) > 1
 
 
-def _columns(years: bool) -> list[tuple[str, float, float]]:
+def _pred_tokens(
+    ctx: ReportContext, row: Row, numbers: dict[IssueId, int], keys: Mapping[IssueId, str]
+) -> list[str]:
+    """A row's predecessors: row numbers, keys of hidden rows, open external blockers."""
+    preds = [str(numbers[i]) if i in numbers else keys.get(i, "") for i in row.predecessors]
+    if row.source:
+        preds += [
+            f"{b.issue_key} (ext)"
+            for b in row.source.external_blockers
+            if b.status_category is not StatusCategory.DONE
+        ]
+    return preds
+
+
+def _pred_px(ctx: ReportContext, rows: Sequence[Row], numbers: dict[IssueId, int]) -> int:
+    """Width of the Pred. column: its default, widened to the longest cell up to the cap."""
+    keys = {t.issue_id: t.issue_key for t in ctx.plan.scheduled_tasks}
+    longest = max((len(",".join(_pred_tokens(ctx, r, numbers, keys))) for r in rows), default=0)
+    default = dict(TABLE_COLUMNS)["Pred."]
+    return min(max(default, math.ceil(longest * CHAR_PX) + 8), PRED_MAX_PX)
+
+
+def _columns(years: bool, pred_px: int | None = None) -> list[tuple[str, float, float]]:
     """Each column's header with its left and right edge in table coordinates (0–1)."""
     table_px = REFERENCE_WIDTH * TABLE_SHARE
     widths = [
         (n, w + (YEAR_PX if years and n in {"Start", "Finish"} else 0)) for n, w in TABLE_COLUMNS
     ]
+    if pred_px is not None:
+        widths = [(n, pred_px if n == "Pred." else w) for n, w in widths]
     fixed = sum(w for _, w in widths)
     edges, x = [], 0.0
     for name, width in widths:
@@ -541,12 +672,16 @@ def _columns(years: bool) -> list[tuple[str, float, float]]:
 
 
 def _cells(
-    ctx: ReportContext, rows: Sequence[Row], numbers: dict[IssueId, int], p: Palette
+    ctx: ReportContext,
+    rows: Sequence[Row],
+    numbers: dict[IssueId, int],
+    p: Palette,
+    pred_px: int | None = None,
 ) -> list[list[str]]:
     years = _spans_years(rows)
     widths = {
         name: (right - left) * REFERENCE_WIDTH * TABLE_SHARE
-        for name, left, right in _columns(years)
+        for name, left, right in _columns(years, pred_px)
     }
     chars = {name: int((w - 8) / CHAR_PX) for name, w in widths.items()}
     keys = {t.issue_id: t.issue_key for t in ctx.plan.scheduled_tasks}
@@ -574,13 +709,7 @@ def _cells(
             budget = chars["Task name"] - len(key) - 3
             name = f"  {link} {html.escape(_fit(r.name, budget))}" if r.name else f"  {link}"
             duration = _days(r.task.duration_working_days if r.task else 0)
-        preds = [str(numbers[i]) if i in numbers else keys.get(i, "") for i in r.predecessors]
-        if r.source:
-            preds += [
-                f"{b.issue_key} (ext)"
-                for b in r.source.external_blockers
-                if b.status_category is not StatusCategory.DONE
-            ]
+        preds = _pred_tokens(ctx, r, numbers, keys)
         resource = html.escape(_fit(r.resource, chars["Resource"]))
         if r.resource == UNASSIGNED:
             resource = f'<span style="color:{p.text_muted}">{resource}</span>'
@@ -591,7 +720,7 @@ def _cells(
                 duration,
                 _short(r.start, years),
                 _short(r.end, years),
-                html.escape(_fit(",".join(preds), chars["Pred."])),
+                html.escape(_fit_tokens(preds, chars["Pred."])),
                 resource if r.kind is RowKind.TASK else "",
             ]
         )
@@ -609,8 +738,9 @@ def gantt_figure(
         ctx = replace(ctx, chart=replace(ctx.chart, group_by=group_by))
     options, p, names = ctx.chart, PALETTES[ctx.chart.theme], _names(ctx)
     rows, collapsed = build_rows(ctx, tasks)
+    links, dependencies = link_list(ctx, rows)
     numbers = {r.task.issue_id: r.number for r in rows if r.task}
-    banners = _banners(ctx, tasks, rows, collapsed)
+    banners = _banners(ctx, tasks, rows, (len(links), dependencies) if collapsed else None)
     sprints = _sprints(ctx)
     canvas = Canvas(
         len(rows),
@@ -649,7 +779,7 @@ def gantt_figure(
     last = max(r.end for r in rows)
     if _forecast_markers(ctx):
         last = max(last, ctx.plan.forecast.p85 + timedelta(days=1))
-    if ctx.chart.filtered and any(p not in numbers for r in rows for p in r.predecessors):
+    if any(link.before is None for link in links):
         first -= timedelta(days=7)  # room for the "← ABC-1 (hidden)" stubs
     span = max((last - first).days, 7)
     window = (
@@ -658,17 +788,52 @@ def gantt_figure(
     )
     _table(figure, ctx, rows, numbers, canvas, p)
     _nonworking(figure, ctx, window, len(rows), p)
-    _links(figure, ctx, rows, numbers, (window[1] - window[0]).days, p)
+    _links(figure, ctx, links, (window[1] - window[0]).days, p)
     _bars(figure, ctx, rows, numbers, names, p)
     _markers(figure, ctx, rows, canvas, window, p)
     return _layout(figure, ctx, canvas, window, p, sprints)
 
 
+def epic_filter_banner(ctx: ReportContext, tasks: Sequence[ScheduledTask]) -> str | None:
+    """What an epic filter shows and leaves out; ``None`` without one. Also the first line of the
+    ``pb_render`` summary, so the tool result says what the chart says."""
+    if not ctx.chart.epics:
+        return None
+    names = _names(ctx)
+    shown = visible_tasks(ctx, tasks)
+    ids = {t.issue_id for t in shown}
+    hidden = {
+        e.predecessor
+        for e in ctx.plan.dependency_edges
+        if e.successor in ids and e.predecessor not in ids
+    }
+    external = {
+        b.issue_key
+        for t in shown
+        if (source := ctx.tasks.get(t.issue_id))
+        for b in source.external_blockers
+        if b.status_category is not StatusCategory.DONE
+    }
+    label = ", ".join(names.epic(e) for e in ctx.chart.epics)
+    return (
+        f"Filtered to {label}: {len(shown)} of {len(tasks)} open tasks; "
+        f"{len(hidden)} {'blocker' if len(hidden) == 1 else 'blockers'} outside the filter "
+        f"(hidden stubs); {len(external)} open "
+        f"{'blocker' if len(external) == 1 else 'blockers'} outside the board"
+    )
+
+
 def _banners(
-    ctx: ReportContext, tasks: Sequence[ScheduledTask], rows: Sequence[Row], collapsed: bool
+    ctx: ReportContext,
+    tasks: Sequence[ScheduledTask],
+    rows: Sequence[Row],
+    collapsed: tuple[int, int] | None,
 ) -> list[str]:
+    """``collapsed``: link lines drawn and the dependencies they stand for, if collapsed."""
     plan, team = ctx.plan, ctx.settings.team
     out = []
+    if (filtered := epic_filter_banner(ctx, tasks)) is not None:
+        out.append(filtered)
     if plan.forecast.method is ForecastMethod.MONTE_CARLO:
         out.append(
             f"Sequence view: {plan.estimated_share:.0%} of open work estimated "
@@ -683,8 +848,14 @@ def _banners(
         out.append(f"Showing {len(shown)} of {len(people)} people")
     elif len(people) > MANY_PEOPLE:
         out.append(f"{len(people)} people on this plan – filter by assignee to focus")
-    if collapsed:
-        out.append(f"{len(tasks)} tasks: groups are collapsed (over {COLLAPSE_ABOVE} tasks)")
+    if collapsed is not None:
+        why = f" (over {COLLAPSE_ABOVE} tasks)" if ctx.chart.collapsed is None else ""
+        lines, dependencies = collapsed
+        out.append(
+            f"{len(visible_tasks(ctx, tasks))} tasks: groups are collapsed{why}; {lines} link "
+            f"{'line' if lines == 1 else 'lines'} between groups for {dependencies} "
+            "dependencies – render with expand=true to see every task"
+        )
     return out
 
 
@@ -757,11 +928,12 @@ def _table(
     p: Palette,
 ) -> None:
     """The task table (§6.1): one text trace per column, header labels in the strip."""
-    cells = _cells(ctx, rows, numbers, p)
+    pred_px = _pred_px(ctx, rows, numbers)
+    cells = _cells(ctx, rows, numbers, p, pred_px)
     ys = [r.number - 1 for r in rows]
     names = _names(ctx)
     hovers = [_hover(ctx, r, numbers, names) for r in rows]
-    for index, (header, left, right) in enumerate(_columns(_spans_years(rows))):
+    for index, (header, left, right) in enumerate(_columns(_spans_years(rows), pred_px)):
         right_aligned = header in {"ID", "Dur."}
         x = right - 0.008 if right_aligned else left + 0.008
         figure.add_trace(
@@ -877,79 +1049,70 @@ def _nonworking(
 def _links(
     figure: go.Figure,
     ctx: ReportContext,
-    rows: Sequence[Row],
-    numbers: dict[IssueId, int],
+    links: Sequence[Link],
     span_days: int,
     p: Palette,
 ) -> None:
     """Right-angle link lines with arrowheads, one toggleable legend layer (§6.5)."""
     stub = max(DAY_MS * 35 // 100, span_days * DAY_MS * 6 // 1000)
-    by_id = {r.task.issue_id: r for r in rows if r.task}
     keys = {t.issue_id: t.issue_key for t in ctx.plan.scheduled_tasks}
-    critical = {t.issue_id for t in ctx.plan.scheduled_tasks if t.critical}
     first = True
-    for row in rows:
-        if row.kind is RowKind.SUMMARY:
-            continue
-        start = (
-            _ms(row.start + timedelta(days=1)) if row.kind is RowKind.MILESTONE else _ms(row.start)
-        )
-        for pred in row.predecessors:
-            red = pred in critical and row.critical
-            line = {"color": p.critical if red else p.link, "width": 1.5 if red else 1}
-            group = {"legendgroup": "links", "name": "Dependency", "legendrank": 6}
-            before = by_id.get(pred)
-            y = row.number - 1
-            if before is None:
-                if ctx.chart.filtered:
-                    figure.add_shape(
-                        type="line",
-                        xref="x2",
-                        yref="y2",
-                        x0=start - 3 * stub,
-                        x1=start,
-                        y0=y,
-                        y1=y,
-                        line=line,
-                        layer="between",
-                        showlegend=False,
-                        label={
-                            "text": f"← {keys.get(pred, '')} (hidden)",
-                            "textposition": "start",
-                            "xanchor": "right",
-                            "font": {"size": 11, "color": p.text_secondary},
-                        },
-                        **group,
-                    )
-                continue
-            path = link_path(_ms(before.end + timedelta(days=1)), before.number - 1, start, y, stub)
+    for link in links:
+        line = {
+            "color": p.critical if link.critical else p.link,
+            "width": 1.5 if link.critical else 1,
+        }
+        group = {"legendgroup": "links", "name": "Dependency", "legendrank": 6}
+        start, y = link.start_ms, link.row.number - 1
+        if link.before is None:
             figure.add_shape(
-                type="path",
-                fillcolor=OPEN,
+                type="line",
                 xref="x2",
                 yref="y2",
-                path=_svg_path(path),
+                x0=start - 3 * stub,
+                x1=start,
+                y0=y,
+                y1=y,
                 line=line,
                 layer="between",
-                showlegend=first,
-                **group,
-            )
-            figure.add_shape(
-                type="path",
-                xref="x2",
-                yref="y2",
-                xsizemode="pixel",
-                ysizemode="pixel",
-                xanchor=start,
-                yanchor=y,
-                path="M-6,-3.5 L0,0 L-6,3.5 Z",
-                fillcolor=line["color"],
-                line={"width": 0},
-                layer="between",
                 showlegend=False,
+                label={
+                    "text": f"← {keys.get(link.predecessor, '')} (hidden)",
+                    "textposition": "start",
+                    "xanchor": "right",
+                    "font": {"size": 11, "color": p.text_secondary},
+                },
                 **group,
             )
-            first = False
+            continue
+        path = link_path(link.finish_ms, link.before.number - 1, start, y, stub)
+        figure.add_shape(
+            type="path",
+            fillcolor=OPEN,
+            xref="x2",
+            yref="y2",
+            path=_svg_path(path),
+            line=line,
+            layer="between",
+            showlegend=first,
+            **group,
+        )
+        figure.add_shape(
+            type="path",
+            xref="x2",
+            yref="y2",
+            xsizemode="pixel",
+            ysizemode="pixel",
+            xanchor=start,
+            yanchor=y,
+            path="M-6,-3.5 L0,0 L-6,3.5 Z",
+            fillcolor=line["color"],
+            line={"width": 0},
+            layer="between",
+            showlegend=False,
+            **group,
+        )
+        first = False
 
 
 def _bars(

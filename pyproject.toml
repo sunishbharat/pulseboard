@@ -90,6 +90,9 @@ W011_low_confidence = "pulseboard.engine.rules:low_confidence"
 W012_solver_wallclock_cap = "pulseboard.engine.rules:solver_wallclock_cap"
 W013_stale_plan = "pulseboard.engine.rules:stale_plan"
 W014_aging_wip = "pulseboard.engine.rules:aging_wip"
+W015_unknown_link_type = "pulseboard.engine.rules:unknown_link_type"
+W016_unknown_person = "pulseboard.engine.rules:unknown_person"
+W017_points_rate_fallback = "pulseboard.engine.rules:points_rate_fallback"
 
 [project.optional-dependencies]
 hosted = [
@@ -102,7 +105,7 @@ dev = [
     "deptry>=0.25.1",
     "hypothesis>=6.170.5",
     "mypy>=2.4.0",
-    "pandas-stubs>=3.0.5.260914",
+    "pandas-stubs<3",
     "pip-audit>=2.10.1",
     "pre-commit>=4.7.0",
     "pytest>=9.1.1",

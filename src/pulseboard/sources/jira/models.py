@@ -275,14 +275,35 @@ class JiraHistory(_Model):
     items: tuple[JiraChangeItem, ...] = ()
 
 
+EMBEDDED_CHANGELOG_MAX = 100
+"""Most entries Jira Cloud embeds with ``expand=changelog`` (when it does not say)."""
+
+
 class JiraChangelog(_Model):
-    """The ``changelog`` of a Data Center issue fetched with ``expand=changelog``."""
+    """The ``changelog`` of an issue fetched with ``expand=changelog``.
+
+    Jira Cloud returns at most the 100 most recent entries this way; ``total`` tells whether
+    entries are missing.
+    """
 
     histories: tuple[JiraHistory, ...] = ()
+    total: int | None = None
+    max_results: int | None = Field(default=None, alias="maxResults")
+
+    @property
+    def truncated(self) -> bool:
+        """Whether Jira may have left out entries (fetch them from the per-issue endpoint).
+
+        Fails closed (ADDENDUM-03 §11): without ``total``, a full page (``maxResults``, or 100
+        when that is missing too) counts as possibly truncated.
+        """
+        if self.total is not None:
+            return self.total > len(self.histories)
+        return len(self.histories) >= (self.max_results or EMBEDDED_CHANGELOG_MAX)
 
 
 class JiraIssueWithChangelog(_Model):
-    """A Data Center issue with its changelog."""
+    """An issue with its changelog (``expand=changelog``)."""
 
     id: str
     changelog: JiraChangelog = JiraChangelog()
@@ -302,10 +323,10 @@ class JiraDueDateIssue(_Model):
     fields: JiraDueDateFields = JiraDueDateFields()
 
 
-class JiraSearchPage(_Model):
+class JiraSearchPage[T](_Model):
     """A JQL search page: token paging on Cloud, offset paging on Data Center."""
 
-    issues: tuple[JiraDueDateIssue, ...] = ()
+    issues: tuple[T, ...] = ()
     next_page_token: str | None = Field(default=None, alias="nextPageToken")
     start_at: int = Field(default=0, alias="startAt")
     total: int | None = None

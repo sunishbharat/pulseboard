@@ -147,6 +147,21 @@ class SnapshotStore:
         with self._engine.begin() as conn:
             conn.execute(delete(snapshots).where(snapshots.c.id == snapshot_id))
 
+    def plan_uses_snapshot(
+        self, site: SiteId, account: AccountId, board: BoardId, snapshot_hash: str
+    ) -> bool:
+        """Whether a stored plan of the board was built from a snapshot with this hash."""
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(plans.c.plan_id).where(
+                    plans.c.site_id == site,
+                    plans.c.account_id == account,
+                    plans.c.board_key == board_key((board,)),
+                    plans.c.snapshot_hash == snapshot_hash,
+                )
+            ).first()
+        return row is not None
+
     def has_baseline(self, site: SiteId, account: AccountId, board: BoardId, key: str) -> bool:
         """Whether a baseline with ``key`` exists for the board."""
         with self._engine.connect() as conn:
@@ -235,6 +250,7 @@ class SnapshotStore:
                     plan_date=plan.plan_date.isoformat(),
                     generated_at=plan.generated_at,
                     data=plan.model_dump_json(),
+                    snapshot_hash=plan.snapshot_hash,
                 )
             )
 
@@ -289,19 +305,23 @@ class SnapshotStore:
     # ------------------------------------------------------------ retention
 
     def purge(self, now: datetime, retention: Retention) -> PurgeCounts:
-        """Delete rows past their retention (ADR-010). Snapshots referenced as a board's latest
-        are kept. Returns the export files the caller should delete."""
+        """Delete rows past their retention (ADR-010). Snapshots referenced as a board's latest,
+        or used by a plan that is kept, are kept. Returns the export files the caller should
+        delete."""
         snapshot_cutoff = now - timedelta(days=retention.snapshots_days)
         plan_cutoff = now - timedelta(days=retention.plans_days)
         with self._engine.begin() as conn:
-            latest = select(board_state.c.latest_snapshot_id)
-            removed_snapshots = conn.execute(
-                delete(snapshots).where(
-                    snapshots.c.fetched_at < snapshot_cutoff, snapshots.c.id.not_in(latest)
-                )
-            ).rowcount
             removed_plans = conn.execute(
                 delete(plans).where(plans.c.generated_at < plan_cutoff)
+            ).rowcount
+            latest = select(board_state.c.latest_snapshot_id)
+            used = select(plans.c.snapshot_hash).where(plans.c.snapshot_hash.is_not(None))
+            removed_snapshots = conn.execute(
+                delete(snapshots).where(
+                    snapshots.c.fetched_at < snapshot_cutoff,
+                    snapshots.c.id.not_in(latest),
+                    snapshots.c.snapshot_hash.not_in(used),
+                )
             ).rowcount
             expired = (
                 conn.execute(select(exports.c.path).where(exports.c.expires <= now)).scalars().all()

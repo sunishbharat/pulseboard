@@ -3,6 +3,7 @@ screenshots come from ``scripts/render_gantt_review.py``)."""
 
 import re
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 
 import plotly.graph_objects as go
@@ -12,8 +13,8 @@ from factories import snapshot, task
 from gantt_fixtures import FILTERED_VIEW, kanban_board, large_board, scrum_board
 from planning import SETTINGS, plan_of
 from pulseboard.domain.plan import Plan
-from pulseboard.domain.snapshot import BoardSnapshot
-from pulseboard.domain.types import AccountId, ReportId
+from pulseboard.domain.snapshot import BoardSnapshot, ExternalBlocker
+from pulseboard.domain.types import AccountId, IssueId, IssueKey, ReportId, StatusCategory
 from pulseboard.domain.untrusted import UntrustedText
 from pulseboard.reports.base import (
     ChartOptions,
@@ -23,7 +24,18 @@ from pulseboard.reports.base import (
     build_context,
     load_reports,
 )
-from pulseboard.reports.gantt import TABLE_COLUMNS, RowKind, build_rows, link_path, tiers_for
+from pulseboard.reports.gantt import (
+    MANY_PEOPLE,
+    PRED_MAX_PX,
+    TABLE_COLUMNS,
+    RowKind,
+    _fit_tokens,
+    build_rows,
+    gantt_figure,
+    link_list,
+    link_path,
+    tiers_for,
+)
 from pulseboard.reports.theme import PALETTES, ThemeMode
 
 DAY = 86_400_000
@@ -372,7 +384,66 @@ def test_large_plans_start_collapsed(large: ReportContext) -> None:
     assert [r.kind for r in rows] == [RowKind.SUMMARY] * 8
     assert sum(r.children for r in rows) == 200
     assert not any("people" in b for b in banners)  # exactly 20: no filter hint yet
-    assert any("200 tasks" in b for b in banners)
+    assert any("200 tasks" in b and "expand=true" in b for b in banners)
+
+
+def _link_paths(figure: go.Figure) -> list[Any]:
+    return [
+        s
+        for s in figure.layout.shapes
+        if s.legendgroup == "links" and s.type == "path" and s.xsizemode != "pixel"
+    ]
+
+
+def test_collapsed_groups_keep_links_between_groups(board: BoardSnapshot, plan: Plan) -> None:
+    ctx = context(board, plan, collapsed=True)
+    rows, collapsed = build_rows(ctx, plan.scheduled_tasks)
+    keys = {t.issue_id: t.issue_key for t in plan.scheduled_tasks}
+    drawn, dependencies = link_list(ctx, rows)
+    links = [(keys[k.predecessor], k.before, k.row) for k in drawn]
+
+    assert collapsed
+    assert [(key, b.name if b else None, r.name) for key, b, r in links] == [
+        ("ABC-107", "ABC-91 Search", "ABC-90 Payments"),  # Search work feeds Payments
+        ("ABC-109", "ABC-90 Payments", "1.0"),  # the milestone's predecessor, on its group row
+    ]  # links inside one group (ABC-104 → ABC-106 → ABC-109 → ABC-112) are not drawn
+    assert dependencies == len(plan.dependency_edges) + 1  # and the milestone's predecessor
+    figure = gantt(ctx)
+    paths = _link_paths(figure)
+    assert len(paths) == len(links)
+    banners = [a.text for a in figure.layout.annotations if a.text.startswith("⚠")]
+    assert any("collapsed; 2 link lines between groups for 6 dependencies" in b for b in banners)
+    assert all(s.line.color == PALETTES[ThemeMode.LIGHT].critical for s in paths)
+
+
+@pytest.mark.parametrize(("count", "expected"), [(149, False), (150, False), (151, True)])
+def test_groups_collapse_above_150_tasks(large: ReportContext, count: int, expected: bool) -> None:
+    tasks = large.plan.scheduled_tasks[:count]
+    rows, collapsed = build_rows(large, tasks)
+    figure = gantt_figure(large, tasks, "Gantt")
+    banners = [a.text for a in figure.layout.annotations if a.text.startswith("⚠")]
+
+    assert collapsed is expected
+    assert (sum(r.kind is RowKind.TASK for r in rows) == 0) is expected
+    assert any("groups are collapsed (over 150 tasks)" in b for b in banners) is expected
+
+
+def test_collapsed_large_plan_links_only_across_groups(large: ReportContext) -> None:
+    assert _link_paths(gantt(large)) == []  # every chain of the fixture stays inside one epic
+    expanded = replace(large, chart=replace(large.chart, collapsed=False))
+    rows, collapsed = build_rows(expanded, expanded.plan.scheduled_tasks)
+
+    assert not collapsed
+    assert sum(r.kind is RowKind.TASK for r in rows) == 200
+    assert len(_link_paths(gantt(expanded))) == len(large.plan.dependency_edges)
+
+
+def test_hidden_predecessor_stub_without_a_filter(board: BoardSnapshot, plan: Plan) -> None:
+    shown = [t for t in plan.scheduled_tasks if t.issue_key != "ABC-106"]
+    figure = gantt_figure(context(board, plan), shown, "Subset")
+    stubs = [s.label.text for s in figure.layout.shapes if s.type == "line" and s.label.text]
+
+    assert "← ABC-106 (hidden)" in stubs  # ABC-109 waits for it, though no filter is set
 
 
 # ---------------------------------------------------------------- theme and determinism (§7, §10)
@@ -404,3 +475,129 @@ def test_same_plan_gives_byte_identical_figure_json(board: BoardSnapshot, plan: 
     second = gantt(context(scrum_board(), plan_of(scrum_board()))).to_json()
 
     assert first == second
+
+
+# ---------------------------------------------------------------- external blockers (PB-17)
+
+
+def _blocked_board(*blockers: str) -> BoardSnapshot:
+    external = tuple(
+        ExternalBlocker(
+            issue_id=IssueId(900 + n),
+            issue_key=IssueKey(key),
+            status_category=StatusCategory.TO_DO,
+        )
+        for n, key in enumerate(blockers)
+    )
+    return snapshot(
+        (task(1, original_estimate_hours=8.0), task(2, external_blockers=external)),
+    )
+
+
+@pytest.mark.parametrize(
+    "blockers",
+    [("XYZ-7",), ("XYZ-7", "OPS-1234"), ("PLATFORM-10001", "PLATFORM-10002", "PLATFORM-10003")],
+)
+def test_open_external_blockers_are_shown_whole(blockers: tuple[str, ...]) -> None:
+    """PB-17: the Pred. cell shows each "KEY (ext)" whole or counts it ("+2"), never cut; the
+    hover names every open external blocker and says why it matters."""
+    board = _blocked_board(*blockers)
+    figure = gantt(context(board, plan_of(board)))
+    cell = next(c for c in trace(figure, "Pred.").text if c)
+    card = next(h for h in hovers(figure) if "<b>ABC-2</b>" in h)
+    shown = [k for k in blockers if f"{k} (ext)" in cell]
+
+    assert shown == list(blockers[: len(shown)])
+    assert shown  # the first one always fits whole
+    assert "…" not in cell
+    assert cell.endswith(f"+{len(blockers) - len(shown)}") or len(shown) == len(blockers)
+    for key in blockers:
+        assert f"Blocked by {key} (outside the board, To Do)" in card
+
+
+@pytest.mark.parametrize(
+    ("chars", "expected"),
+    [
+        (30, "XYZ-7 (ext),ABC-9 (ext)"),
+        (23, "XYZ-7 (ext),ABC-9 (ext)"),  # exactly fits
+        (22, "XYZ-7 (ext) +1"),  # one short: the second key is counted, not cut
+        (14, "XYZ-7 (ext) +1"),
+        (13, "+2"),
+    ],
+)
+def test_predecessor_cells_never_cut_a_key(chars: int, expected: str) -> None:
+    assert _fit_tokens(["XYZ-7 (ext)", "ABC-9 (ext)"], chars) == expected
+
+
+def test_pred_column_widens_to_its_cells_up_to_a_cap() -> None:
+    narrow = gantt(context(_blocked_board(), plan_of(_blocked_board())))
+    wide_board = _blocked_board(*(f"PLATFORM-{n}" for n in range(10001, 10021)))
+    wide = gantt(context(wide_board, plan_of(wide_board)))
+
+    def width(figure: go.Figure) -> float:
+        pred = trace(figure, "Pred.")
+        resource = trace(figure, "Resource")
+        return float(resource.x[0] - pred.x[0])
+
+    assert dict(TABLE_COLUMNS)["Pred."] < PRED_MAX_PX
+    assert width(wide) > width(narrow)
+    assert "+" in " ".join(trace(wide, "Pred.").text)  # 20 keys do not fit even at the cap
+
+
+# ---------------------------------------------------------------- banners at their limits (PB-37)
+
+
+def _people_board(count: int) -> BoardSnapshot:
+    return snapshot(tuple(task(n, assignee=AccountId(f"p{n:02d}")) for n in range(1, count + 1)))
+
+
+@pytest.mark.parametrize(("people", "banner"), [(19, False), (20, False), (21, True)])
+def test_many_people_banner_appears_above_20(people: int, banner: bool) -> None:
+    board = _people_board(people)
+    figure = gantt(context(board, plan_of(board)))
+    banners = [a.text for a in figure.layout.annotations if a.text.startswith("⚠")]
+
+    assert MANY_PEOPLE == 20
+    assert any(f"{people} people on this plan" in b for b in banners) is banner
+
+
+@pytest.mark.parametrize(("people", "banner"), [(20, False), (21, True)])
+def test_assignee_filter_says_how_many_people_it_shows(people: int, banner: bool) -> None:
+    board = _people_board(people)
+    ctx = context(board, plan_of(board), assignees=(AccountId("p01"),))
+    banners = [a.text for a in gantt(ctx).layout.annotations if a.text.startswith("⚠")]
+
+    assert any(f"Showing 1 of {people} people" in b for b in banners) is banner
+
+
+def test_stale_plan_banner(board: BoardSnapshot, plan: Plan) -> None:
+    from datetime import UTC, datetime
+
+    stale = plan.model_copy(update={"stale_since": datetime(2026, 10, 19, 6, 5, tzinfo=UTC)})
+    fresh = [a.text for a in gantt(context(board, plan)).layout.annotations]
+    banners = [a.text for a in gantt(context(board, stale)).layout.annotations]
+
+    assert not any("Jira unreachable" in b for b in fresh)
+    assert any("Jira unreachable since 06:05; showing the last stored data" in b for b in banners)
+
+
+def test_tentative_assignments_are_shaded_and_marked(board: BoardSnapshot, plan: Plan) -> None:
+    """§18.1 case 16, the visible half: a planner-chosen assignee is dashed, faded and "?"."""
+    chosen = next(t for t in plan.scheduled_tasks if t.lane is not None)
+    tentative = plan.model_copy(
+        update={
+            "scheduled_tasks": tuple(
+                t.model_copy(update={"tentative": True}) if t is chosen else t
+                for t in plan.scheduled_tasks
+            )
+        }
+    )
+    figure = gantt(context(board, tentative))
+    dashed = [s for s in figure.layout.shapes if s.type == "rect" and s.line.dash == "dash"]
+    card = next(h for h in hovers(figure) if f"<b>{chosen.issue_key}</b>" in h)
+
+    assert len(dashed) == 1
+    assert "(tentative, chosen by the planner)" in card
+    assert any(str(r).endswith("?") for r in trace(figure, "Resource").text)
+    plain = gantt(context(board, plan)).layout.shapes
+    assert not [s for s in plain if s.type == "rect" and s.line.dash == "dash"]

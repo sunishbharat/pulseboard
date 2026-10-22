@@ -31,6 +31,12 @@ class FakeSource:
     delay_s: float = 0.0
     _account: AccountId | None = None
 
+    key: str = ""
+    """What ``settings_key`` returns; prepared snapshots carry the empty key by default."""
+
+    def settings_key(self) -> str:
+        return self.key
+
     def account_id(self) -> AccountId:
         if self._account is None:
             self.account_calls += 1
@@ -55,7 +61,7 @@ class FakeSource:
             progress("issues", 1, 1)
         self.calls.append(Call(updated_since, window_start))
         snap = self.snapshots[min(len(self.calls) - 1, len(self.snapshots) - 1)]
-        return snap.model_copy(update={"fetched_at": fetched_at})
+        return snap.model_copy(update={"fetched_at": fetched_at, "settings_key": self.key})
 
 
 class FakeKeychain:

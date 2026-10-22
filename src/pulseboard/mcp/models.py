@@ -71,6 +71,8 @@ class FlowSummary(BaseModel):
     cycle_time_p85_days: float | None
     aging_outliers: list[str]
     """Issue keys in progress longer than the cycle-time P85."""
+    note: str | None = None
+    """Why a metric is missing or a list is empty."""
 
 
 class BuildPlanOut(BaseModel):
@@ -92,6 +94,8 @@ class BuildPlanOut(BaseModel):
     stale_since: datetime | None = None
     partial_flow: FlowSummary | None = None
     """Set when the build timed out: flow metrics only, no plan."""
+    partial_reason: str | None = None
+    """Why ``plan_id`` is null (for example ``timeout: …``) and what to do next."""
 
 
 class PlanSummaryOut(BaseModel):
@@ -106,10 +110,11 @@ class PlanSummaryOut(BaseModel):
     blocked: int
     forecast_p50: date
     forecast_p85: date
+    """The whole plan's forecast end."""
     method: ForecastMethod
     confidence: Confidence
-    target: date | None
-    slip_days: float | None
+    last_milestone: MilestoneOut | None
+    """The milestone with the latest target, with its own forecast and slip."""
     top_warnings: list[WarningOut]
     milestones_at_risk: list[MilestoneOut]
 
@@ -126,6 +131,16 @@ class CriticalTaskOut(BaseModel):
     reason: ConstraintReason
     after: str | None = None
     """Key of the task it waits for."""
+
+
+class CriticalPathOut(BaseModel):
+    """The longest critical path as a page of tasks; paths counts every critical path."""
+
+    model_config = _OUT
+    paths: int
+    paths_truncated: bool
+    """More paths exist than ``limits.max_critical_paths`` kept; the longest are kept."""
+    page: Page[CriticalTaskOut]
 
 
 class WarningsOut(BaseModel):

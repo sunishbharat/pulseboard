@@ -28,6 +28,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import certifi
 import yaml
@@ -63,6 +64,37 @@ def docker(*args: str, check: bool = True) -> str:
     return done.stdout.strip()
 
 
+def stub_routes(recorded: list[dict[str, Any]]) -> list[dict[str, object]]:
+    """The cassette's interactions as stub routes. The recorded changelog searches (pages of
+    the tests' page size) become one route holding every issue, since the server's page size
+    differs and the stub ignores the JQL."""
+    routes: list[dict[str, object]] = []
+    changelogs: list[object] = []
+    for item in recorded:
+        uri = item["request"]["uri"]
+        body = item["response"]["body"]["string"]
+        if "/search/jql" in uri and "expand=changelog" in uri:
+            changelogs.extend(json.loads(body)["issues"])
+            continue
+        routes.append(
+            {
+                "method": item["request"]["method"],
+                "uri": uri,
+                "status": item["response"]["status"]["code"],
+                "body": body,
+            }
+        )
+    routes.append(
+        {
+            "method": "GET",
+            "uri": f"https://{JIRA_HOST}/rest/api/3/search/jql?expand=changelog",
+            "status": 200,
+            "body": json.dumps({"issues": changelogs, "isLast": True}),
+        }
+    )
+    return routes
+
+
 def prepare(work: Path) -> None:
     """Writes the stub's certificate, the combined CA bundle, routes and script into ``work``."""
     subprocess.run(
@@ -80,16 +112,7 @@ def prepare(work: Path) -> None:
     (work / "ca.pem").write_text(bundle, encoding="utf-8")
 
     recorded = yaml.safe_load(CASSETTE.read_text(encoding="utf-8"))["interactions"]
-    routes = [
-        {
-            "method": item["request"]["method"],
-            "uri": item["request"]["uri"],
-            "status": item["response"]["status"]["code"],
-            "body": item["response"]["body"]["string"],
-        }
-        for item in recorded
-    ]
-    (work / "routes.json").write_text(json.dumps(routes), encoding="utf-8")
+    (work / "routes.json").write_text(json.dumps(stub_routes(recorded)), encoding="utf-8")
     shutil.copy(STUB, work / STUB.name)
     # Readable by the containers' users (root in the stub, uid 1000 in Pulseboard).
     work.chmod(0o755)

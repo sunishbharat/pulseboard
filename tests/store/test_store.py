@@ -48,7 +48,9 @@ def store(engine: Engine) -> SnapshotStore:
     return SnapshotStore(engine)
 
 
-def plan(plan_id: str, generated_at: datetime, settings_hash: str = "s") -> Plan:
+def plan(
+    plan_id: str, generated_at: datetime, settings_hash: str = "s", snapshot_hash: str = "h"
+) -> Plan:
     end = date(2026, 11, 1)
     return Plan(
         plan_id=PlanId(plan_id),
@@ -59,7 +61,7 @@ def plan(plan_id: str, generated_at: datetime, settings_hash: str = "s") -> Plan
         team_time_zone="UTC",
         engine_version="0.1.0",
         settings_hash=settings_hash,
-        snapshot_hash="h",
+        snapshot_hash=snapshot_hash,
         scheduled_tasks=(),
         dependency_edges=(),
         critical_paths=(),
@@ -214,3 +216,57 @@ def test_in_memory_engine_keeps_data() -> None:
     snapshot_id = store.save_snapshot(snapshot((task(1),)), full_reload=True)
 
     assert store.get_snapshot(snapshot_id) is not None
+
+
+def test_purge_keeps_snapshots_that_kept_plans_use(store: SnapshotStore) -> None:
+    """PB-04: an old snapshot stays while a plan within retention was built from it."""
+    used = snapshot((task(1),)).model_copy(update={"fetched_at": NOW - timedelta(days=400)})
+    unused = snapshot((task(2),)).model_copy(update={"fetched_at": NOW - timedelta(days=400)})
+    used_id = store.save_snapshot(used, full_reload=True)
+    unused_id = store.save_snapshot(unused, full_reload=True)
+    store.save_plan(plan("recent", NOW - timedelta(days=1), snapshot_hash=used.snapshot_hash))
+    store.save_plan(plan("old", NOW - timedelta(days=31), snapshot_hash=unused.snapshot_hash))
+
+    counts = store.purge(NOW, Retention())
+
+    assert counts.plans == 1
+    assert counts.snapshots == 1
+    assert store.get_snapshot(used_id) is not None
+    assert store.get_snapshot(unused_id) is None  # its only plan was purged first
+    assert store.plan_uses_snapshot(SITE, ACCOUNT, BOARD, used.snapshot_hash)
+    assert not store.plan_uses_snapshot(SITE, ACCOUNT, BOARD, unused.snapshot_hash)
+
+
+def test_migration_0002_records_existing_plans_snapshot_hash(tmp_path: Path) -> None:
+    """Plans stored before 0002 get their snapshot hash from their own data."""
+    from alembic import command
+    from alembic.config import Config
+
+    from pulseboard.store.repository import MIGRATIONS
+
+    engine = create_store_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    config = Config()
+    config.set_main_option("script_location", str(MIGRATIONS))
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0001")
+    old = plan("before", NOW, snapshot_hash="abc")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO plans (plan_id, site_id, account_id, board_key, settings_hash, "
+            "plan_date, generated_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "before",
+                SITE,
+                ACCOUNT,
+                "42",
+                "s",
+                "2026-10-19",
+                NOW.isoformat(),
+                old.model_dump_json(),
+            ),
+        )
+
+    migrate(engine)
+
+    assert SnapshotStore(engine).plan_uses_snapshot(SITE, ACCOUNT, BOARD, "abc")

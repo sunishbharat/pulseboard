@@ -29,6 +29,10 @@ class Throughput:
     """Done items per week, oldest week first, over the weeks the board has existed."""
 
     weekly: tuple[int, ...]
+    capped_from: int | None = None
+    """The configured history weeks, when the fetch window allowed fewer (ADDENDUM-03 §4)."""
+    window_days: int | None = None
+    """The history (fetch) window the weeks were capped by."""
 
     @property
     def weeks(self) -> int:
@@ -37,15 +41,27 @@ class Throughput:
 
 
 def weekly_throughput(
-    tasks: Sequence[Task], plan_date: date, time_zone: str, history_weeks: int
+    tasks: Sequence[Task],
+    plan_date: date,
+    time_zone: str,
+    history_weeks: int,
+    window_days: int | None,
 ) -> Throughput:
     """Count resolutions per week in the ``history_weeks`` weeks up to the plan date.
 
     Week 0 is the seven days ending on the plan date. Weeks before the oldest task was created
-    are left out, so a young board is not padded with zero weeks.
+    are left out, so a young board is not padded with zero weeks. Weeks older than the history
+    (fetch) window ``window_days`` are left out too: resolutions there were never fetched, so
+    they would count as zero weeks (ADDENDUM-03 §4). Only ``window_days // 7`` weeks count, which
+    leaves a spare day for the Jira user's and the team's time zones to differ. ``window_days``
+    is required so no caller forgets it; ``None`` only for history fetched without a window.
     """
+    capped_from = None
+    if window_days is not None and window_days // DAYS_PER_WEEK < history_weeks:
+        capped_from, history_weeks = history_weeks, max(window_days // DAYS_PER_WEEK, 1)
+    window = window_days if capped_from is not None else None
     if not tasks:
-        return Throughput(())
+        return Throughput((), capped_from, window)
     oldest = min(local_date(t.created, time_zone) for t in tasks)
     available = (plan_date - oldest).days // DAYS_PER_WEEK + 1
     weeks = max(min(history_weeks, available), 0)
@@ -57,7 +73,7 @@ def weekly_throughput(
         index = age // DAYS_PER_WEEK
         if age >= 0 and index < weeks:
             counts[weeks - 1 - index] += 1
-    return Throughput(tuple(counts))
+    return Throughput(tuple(counts), capped_from, window)
 
 
 _SEED_HEX_DIGITS = 8
@@ -131,6 +147,11 @@ def monte_carlo_forecast(
     else:
         confidence = Confidence.MEDIUM
         reason = f"{throughput.weeks} weeks of throughput history"
+    if throughput.capped_from is not None:
+        reason += (
+            f" (capped from {throughput.capped_from} by the "
+            f"{throughput.window_days}-day history window)"
+        )
     p50, p85, p95 = (weeks_to_date(w, calendar) for w in weeks)
     return Forecast(
         method=ForecastMethod.MONTE_CARLO,

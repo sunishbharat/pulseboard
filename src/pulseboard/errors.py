@@ -18,6 +18,7 @@ class ErrorCode(StrEnum):
     TIMEOUT = "timeout"
     SERVER_BUSY = "server_busy"
     NOT_AVAILABLE = "not_available"
+    INVALID_ARGUMENT = "invalid_argument"
 
 
 DURABLE_STORAGE_MESSAGE = (
@@ -124,6 +125,12 @@ class ServerBusyError(ToolError):
 
     def __init__(self) -> None:
         super().__init__("The server is busy planning other boards.", hint="Retry shortly.")
+
+
+class InvalidArgumentError(ToolError):
+    """A tool argument is out of range or names nothing in the plan (ADDENDUM-03 §10)."""
+
+    code = ErrorCode.INVALID_ARGUMENT
 
 
 class NotAvailableError(ToolError):

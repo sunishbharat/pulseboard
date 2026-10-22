@@ -34,6 +34,11 @@ class BoardSource(Protocol):
         """A snapshot of the board; with ``updated_since``, only issues updated since then."""
         ...
 
+    def settings_key(self) -> str:
+        """Identifies the settings that shape this source's snapshots. A stored snapshot with
+        another key is stale as a whole, so the board is fetched in full again."""
+        ...
+
 
 SourceFactory = Callable[[Site, Credentials, Settings], BoardSource]
 """Builds a source for a site (registered per deployment type)."""

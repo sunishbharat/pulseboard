@@ -1,10 +1,12 @@
 """Analyzer: float, tight edges, critical paths, constraint reasons (DESIGN §10.5; §18.1 #13)."""
 
+import networkx as nx
+import pytest
 from scheduling_helpers import schedule
 
 from factories import fixture_board, snapshot, task
 from pulseboard.domain.types import AccountId, ConstraintReason, IssueId, SolverStatus
-from pulseboard.engine.analyzer import analyze
+from pulseboard.engine.analyzer import _critical_paths, analyze
 from pulseboard.engine.scheduling import (
     Edge,
     Mode,
@@ -117,3 +119,47 @@ def test_fixture_board_float_is_never_negative() -> None:
     assert all(t.total_float >= 0 for t in a.tasks.values())
     assert a.critical_paths
     assert all(a.tasks[i].critical for path in a.critical_paths for i in path)
+
+
+def lattice() -> tuple["nx.DiGraph[IssueId]", dict[IssueId, TaskTiming]]:
+    """64 equal paths of span 13 (task 1, then six layers of two) plus a lone task 100 that
+    spans the whole plan (18 units): the longest path, with the highest ID."""
+    timings = {IssueId(1): timing(1, 5, 6), IssueId(100): timing(100, 0, 18)}
+    graph: nx.DiGraph[IssueId] = nx.DiGraph()
+    graph.add_nodes_from(timings)
+    previous = [IssueId(1)]
+    for layer in range(6):
+        ids = [IssueId(10 + 2 * layer), IssueId(11 + 2 * layer)]
+        for i in ids:
+            timings[i] = timing(i, 6 + 2 * layer, 8 + 2 * layer)
+            graph.add_edges_from((p, i) for p in previous)
+        previous = ids
+    return graph, timings
+
+
+@pytest.mark.parametrize(("limit", "truncated"), [(64, True), (65, False), (66, False), (1, True)])
+def test_the_path_cap_keeps_the_longest_paths_and_says_when_it_cut(
+    limit: int, truncated: bool
+) -> None:
+    """PB-10: 65 paths in all; the cap cuts only the shortest, and reports that it did."""
+    graph, timings = lattice()
+
+    paths, cut = _critical_paths(graph, timings, set(timings), 18, limit)
+
+    assert paths[0] == (100,)
+    assert len(paths) == min(limit, 65)
+    assert cut is truncated
+    spans = [timings[p[-1]].end - timings[p[0]].start for p in paths]
+    assert spans == sorted(spans, reverse=True)
+    assert paths == tuple(sorted(paths, key=lambda p: (-spans[paths.index(p)], -len(p), p)))
+
+
+@pytest.mark.parametrize("limit", [49, 50, 51])
+def test_path_cap_boundaries(limit: int) -> None:
+    graph, timings = lattice()
+
+    paths, cut = _critical_paths(graph, timings, set(timings), 18, limit)
+
+    assert paths[0] == (100,)
+    assert len(paths) == limit
+    assert cut

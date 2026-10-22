@@ -40,6 +40,12 @@ class Store(Protocol):
         """Remove a superseded incremental snapshot."""
         ...
 
+    def plan_uses_snapshot(
+        self, site: SiteId, account: AccountId, board: BoardId, snapshot_hash: str
+    ) -> bool:
+        """Whether a stored plan of the board was built from a snapshot with this hash."""
+        ...
+
     def has_baseline(self, site: SiteId, account: AccountId, board: BoardId, key: str) -> bool:
         """Whether a baseline with ``key`` exists for the board."""
         ...

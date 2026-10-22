@@ -25,6 +25,20 @@ HOST_ENV = "PULSEBOARD_HOST"
 PORT_ENV = "PULSEBOARD_PORT"
 PUBLIC_URL_ENV = "PULSEBOARD_PUBLIC_URL"
 MAX_SOLVES_ENV = "PULSEBOARD_MAX_CONCURRENT_SOLVES"
+HOSTED_VARIABLES = frozenset(
+    {
+        TRANSPORT_ENV,
+        SITE_URL_ENV,
+        SITE_DEPLOYMENT_ENV,
+        SITE_CLIENT_CERT_ENV,
+        ACCESS_KEYS_ENV,
+        HOST_ENV,
+        PORT_ENV,
+        PUBLIC_URL_ENV,
+        MAX_SOLVES_ENV,
+    }
+)
+"""Every variable hosted mode reads (anything else ``PULSEBOARD_*`` must be a setting)."""
 
 HOSTED_SITE_ID = SiteId("jira")
 DEFAULT_HOST = "127.0.0.1"

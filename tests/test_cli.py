@@ -115,6 +115,35 @@ def test_config_check(tmp_path: Path) -> None:
     assert "3 sites" in run.out.getvalue()
 
 
+def test_config_check_names_variables_that_set_nothing(tmp_path: Path) -> None:
+    """PB-21: a single-underscore section name (an old documented form) is ignored, so say so;
+    settings, credentials of configured sites and hosted variables are known. Values never show."""
+    write_settings(tmp_path, SITES)
+    run = Run(tmp_path)
+    environ = {
+        "PULSEBOARD_TEAM_TIME_ZONE": "Asia/Tokyo",  # wrong: needs a double underscore
+        "PULSEBOARD_TEAM__TIME_ZONE": "Asia/Tokyo",
+        "PULSEBOARD_LIMITS__REPORTING_WINDOW_DAYS": "30",
+        "PULSEBOARD_TEAM__POINTS__MODE": "velocity",
+        "PULSEBOARD_ACME_EMAIL": "a@example.com",
+        "PULSEBOARD_ACME_TOKEN": "s3cr3t-value",
+        "PULSEBOARD_CORP_TOKEN": "s3cr3t-value",
+        "PULSEBOARD_OTHER_TOKEN": "s3cr3t-value",  # no site "other"
+        "PULSEBOARD_TRANSPORT": "stdio",
+        "PULSEBOARD_CONFIG": "x",
+        "PATH": "/usr/bin",
+    }
+
+    assert run("config", "check", environ=environ) == 0
+    warned = [line for line in run.err.getvalue().splitlines() if line.startswith("Warning:")]
+    assert [line.split()[1] for line in warned] == [
+        "PULSEBOARD_OTHER_TOKEN",
+        "PULSEBOARD_TEAM_TIME_ZONE",
+    ]
+    assert "s3cr3t" not in run.err.getvalue()
+    assert "Asia/Tokyo" not in run.err.getvalue()
+
+
 def test_config_check_names_the_site_and_field(tmp_path: Path) -> None:
     write_settings(tmp_path, SITES.replace('auth = "pat"', 'auth = "api_token"'))
     run = Run(tmp_path)

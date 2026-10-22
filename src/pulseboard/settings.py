@@ -6,7 +6,7 @@ folder (DESIGN §9.9.1). Credentials are never part of the settings; see ``pulse
 
 import os
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
@@ -22,7 +22,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from pulseboard.domain.types import AccountId, RequestProfile, WarningId
+from pulseboard.domain.types import AccountId, RequestProfile, WarningId, jira_name_key
 from pulseboard.errors import ConfigError
 from pulseboard.sites import CREDENTIAL_HINT, CREDENTIAL_KEYS, Site
 from pulseboard.timezones import TimeZoneName
@@ -119,6 +119,53 @@ class LeavePeriod(BaseModel):
         return self
 
 
+class LinkBlocker(StrEnum):
+    """Which end of a dependency link is the blocker (ADDENDUM-03 §3)."""
+
+    INWARD = "inward"
+    """The issue named by the type's inward text blocks this one (``Blocks``: "is blocked by")."""
+    OUTWARD = "outward"
+    """The issue named by the type's outward text blocks this one (e.g. "depends on")."""
+
+
+DEFAULT_LINK_TYPE = "Blocks"
+
+
+class LinkTypeSetting(BaseModel):
+    """A Jira issue link type that schedules as a dependency, and which end is the blocker.
+
+    A plain name is accepted for ``Blocks`` only (its blocker is the inward end); any other
+    type must say which end blocks, because Jira link types have no fixed direction.
+    """
+
+    model_config = _SETTINGS
+
+    name: Annotated[str, Field(min_length=1)]
+    blocker: LinkBlocker
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_name(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        if jira_name_key(value) != jira_name_key(DEFAULT_LINK_TYPE):
+            msg = (
+                f"Link type '{value.strip()}' needs a direction: write "
+                f'{{name = "{value.strip()}", blocker = "inward"}} or blocker = "outward" '
+                "(the end whose issue must finish first)."
+            )
+            raise ValueError(msg)
+        return {"name": value, "blocker": LinkBlocker.INWARD}
+
+    @field_validator("name")
+    @classmethod
+    def _trimmed(cls, value: str) -> str:
+        if not value.strip():
+            msg = "A link type name cannot be blank."
+            raise ValueError(msg)
+        return value.strip()
+
+
 class SolverSettings(BaseModel):
     """Deterministic solver budget (DESIGN §10.4)."""
 
@@ -151,7 +198,10 @@ class TeamSettings(BaseModel):
     extra_non_working_dates: tuple[date, ...] = ()
     unassigned_policy: UnassignedPolicy = UnassignedPolicy.SEPARATE_LANE
     priority_mode: PriorityMode = PriorityMode.BOARD_ORDER
-    dependency_link_types: tuple[str, ...] = ("Blocks",)
+    dependency_link_types: tuple[LinkTypeSetting, ...] = (
+        LinkTypeSetting(name=DEFAULT_LINK_TYPE, blocker=LinkBlocker.INWARD),
+    )
+    """Link types scheduled as dependencies; names match Jira's trimmed and case-insensitively."""
     include_subtasks: bool = True
     solver: SolverSettings = SolverSettings()
 
@@ -162,6 +212,10 @@ class TeamSettings(BaseModel):
         ids = [p.account_id for p in self.people]
         if len(ids) != len(set(ids)):
             msg = "Each account_id may appear only once in people."
+            raise ValueError(msg)
+        names = [jira_name_key(t.name) for t in self.dependency_link_types]
+        if len(names) != len(set(names)):
+            msg = "Each link type may appear only once in dependency_link_types."
             raise ValueError(msg)
         return self
 
@@ -233,7 +287,7 @@ class TokenBudgets(BaseModel):
 
     summary: PositiveInt = 500
     full: PositiveInt = 1500
-    tool_definitions: PositiveInt = 1500
+    tool_definitions: PositiveInt = 5000
 
 
 class PoliteProfile(BaseModel):
@@ -348,6 +402,32 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Precedence: explicit arguments, then environment, then the TOML file."""
         return (init_settings, env_settings, TomlConfigSettingsSource(settings_cls))
+
+
+ENV_PREFIX = "PULSEBOARD_"
+ENV_NESTING = "__"
+
+
+def setting_variables(model: type[BaseModel] = Settings, prefix: str = ENV_PREFIX) -> set[str]:
+    """Every environment variable that sets a setting: ``PULSEBOARD_<FIELD>`` and, for sections,
+    ``PULSEBOARD_<SECTION>__<FIELD>`` (any depth)."""
+    found: set[str] = set()
+    for name, info in model.model_fields.items():
+        variable = f"{prefix}{name.upper()}"
+        found.add(variable)
+        annotation = info.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            found |= setting_variables(annotation, f"{variable}{ENV_NESTING}")
+    return found
+
+
+def unknown_variables(environ: Mapping[str, str], known: Iterable[str]) -> tuple[str, ...]:
+    """``PULSEBOARD_*`` variables that set nothing: a typo or an outdated name is otherwise
+    ignored without a sign (ADDENDUM-03 §13). Only names are returned, never values."""
+    expected = setting_variables() | set(known) | {CONFIG_PATH_ENV}
+    return tuple(
+        sorted(n for n in environ if n.upper().startswith(ENV_PREFIX) and n.upper() not in expected)
+    )
 
 
 class SettingsLocation(NamedTuple):

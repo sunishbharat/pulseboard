@@ -187,10 +187,31 @@ interactions:
     body: null
     headers: {}
     method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/102/changelog?startAt=0&maxResults=5
+    uri: https://acme.atlassian.net/rest/api/3/search/jql?jql=id+in+%28101%2C+102%2C+103%2C+104%2C+105%29&fields=status&expand=changelog&maxResults=5
   response:
     body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 3, "isLast": true, "values": [{"id": "1021", "author": {"accountId": "557058:alice"}, "created": "2026-09-28T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "10", "toString": null}]}, {"id": "1022", "author": {"accountId": "557058:alice"}, "created": "2026-09-30T09:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}, {"id": "1023", "author": {"accountId": "557058:alice"}, "created": "2026-10-08T15:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10002", "toString": null}]}]}'
+      string: '{"issues": [{"id": "101", "key": "ABC-101", "fields": {}, "changelog": {"startAt": 0, "maxResults":
+        2, "total": 3, "histories": [{"id": "1013", "author": {"accountId": "557058:alice"}, "created":
+        "2026-10-02T15:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3",
+        "fromString": null, "to": "10002", "toString": null}]}, {"id": "1012", "author": {"accountId":
+        "557058:alice"}, "created": "2026-09-29T10:00:00.000+0000", "items": [{"field": "status", "fieldtype":
+        "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}]}}, {"id": "102",
+        "key": "ABC-102", "fields": {}, "changelog": {"startAt": 0, "maxResults": 3, "total": 3, "histories":
+        [{"id": "1023", "author": {"accountId": "557058:alice"}, "created": "2026-10-08T15:00:00.000+0000",
+        "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10002",
+        "toString": null}]}, {"id": "1022", "author": {"accountId": "557058:alice"}, "created": "2026-09-30T09:00:00.000+0000",
+        "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to":
+        "3", "toString": null}]}, {"id": "1021", "author": {"accountId": "557058:alice"}, "created": "2026-09-28T09:05:00.000+0000",
+        "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "10",
+        "toString": null}]}]}}, {"id": "103", "key": "ABC-103", "fields": {}, "changelog": {"startAt":
+        0, "maxResults": 3, "total": 3, "histories": [{"id": "1033", "author": {"accountId": "557058:alice"},
+        "created": "2026-10-15T11:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira",
+        "from": "3", "fromString": null, "to": "10002", "toString": null}]}, {"id": "1032", "author":
+        {"accountId": "557058:alice"}, "created": "2026-10-13T09:00:00.000+0000", "items": [{"field":
+        "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]},
+        {"id": "1031", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000",
+        "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11",
+        "toString": null}]}]}}], "nextPageToken": "page-2", "isLast": false}'
     headers:
       Content-Type:
       - application/json;charset=UTF-8
@@ -201,10 +222,23 @@ interactions:
     body: null
     headers: {}
     method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/103/changelog?startAt=0&maxResults=5
+    uri: https://acme.atlassian.net/rest/api/3/search/jql?jql=id+in+%28101%2C+102%2C+103%2C+104%2C+105%29&fields=status&expand=changelog&maxResults=5&nextPageToken=page-2
   response:
     body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 3, "isLast": true, "values": [{"id": "1031", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}, {"id": "1032", "author": {"accountId": "557058:alice"}, "created": "2026-10-13T09:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}, {"id": "1033", "author": {"accountId": "557058:alice"}, "created": "2026-10-15T11:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10002", "toString": null}]}]}'
+      string: '{"issues": [{"id": "104", "key": "ABC-104", "fields": {}, "changelog": {"startAt": 0, "maxResults":
+        2, "total": 2, "histories": [{"id": "1042", "author": {"accountId": "557058:alice"}, "created":
+        "2026-10-14T09:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000",
+        "fromString": null, "to": "3", "toString": null}]}, {"id": "1041", "author": {"accountId": "557058:alice"},
+        "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom",
+        "from": null, "fromString": null, "to": "11", "toString": null}]}]}}, {"id": "105", "key": "ABC-105",
+        "fields": {}, "changelog": {"startAt": 0, "maxResults": 3, "total": 3, "histories": [{"id": "1053",
+        "author": {"accountId": "557058:alice"}, "created": "2026-10-16T10:00:00.000+0000", "items": [{"field":
+        "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10001", "toString": null}]},
+        {"id": "1052", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T13:00:00.000+0000",
+        "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to":
+        "3", "toString": null}]}, {"id": "1051", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000",
+        "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11",
+        "toString": null}]}]}}], "isLast": true}'
     headers:
       Content-Type:
       - application/json;charset=UTF-8
@@ -215,10 +249,22 @@ interactions:
     body: null
     headers: {}
     method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/104/changelog?startAt=0&maxResults=5
+    uri: https://acme.atlassian.net/rest/api/3/search/jql?jql=id+in+%28106%2C+107%2C+108%2C+109%2C+110%29&fields=status&expand=changelog&maxResults=5
   response:
     body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 2, "isLast": true, "values": [{"id": "1041", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}, {"id": "1042", "author": {"accountId": "557058:alice"}, "created": "2026-10-14T09:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}]}'
+      string: '{"issues": [{"id": "106", "key": "ABC-106", "fields": {}, "changelog": {"startAt": 0, "maxResults":
+        1, "total": 1, "histories": [{"id": "1061", "author": {"accountId": "557058:alice"}, "created":
+        "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null,
+        "fromString": null, "to": "11", "toString": null}]}]}}, {"id": "107", "key": "ABC-107", "fields":
+        {}, "changelog": {"startAt": 0, "maxResults": 1, "total": 1, "histories": [{"id": "1071", "author":
+        {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field":
+        "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}]}},
+        {"id": "108", "key": "ABC-108", "fields": {}, "changelog": {"startAt": 0, "maxResults": 1, "total":
+        1, "histories": [{"id": "1081", "author": {"accountId": "557058:alice"}, "created": "2026-10-14T16:00:00.000+0000",
+        "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11",
+        "toString": null}]}]}}, {"id": "109", "key": "ABC-109", "fields": {}, "changelog": {"startAt":
+        0, "maxResults": 0, "total": 0, "histories": []}}, {"id": "110", "key": "ABC-110", "fields": {},
+        "changelog": {"startAt": 0, "maxResults": 0, "total": 0, "histories": []}}], "isLast": true}'
     headers:
       Content-Type:
       - application/json;charset=UTF-8
@@ -229,10 +275,12 @@ interactions:
     body: null
     headers: {}
     method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/105/changelog?startAt=0&maxResults=5
+    uri: https://acme.atlassian.net/rest/api/3/search/jql?jql=id+in+%28111%2C+112%29&fields=status&expand=changelog&maxResults=5
   response:
     body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 3, "isLast": true, "values": [{"id": "1051", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}, {"id": "1052", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T13:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "10000", "fromString": null, "to": "3", "toString": null}]}, {"id": "1053", "author": {"accountId": "557058:alice"}, "created": "2026-10-16T10:00:00.000+0000", "items": [{"field": "status", "fieldtype": "jira", "from": "3", "fromString": null, "to": "10001", "toString": null}]}]}'
+      string: '{"issues": [{"id": "111", "key": "ABC-111", "fields": {}, "changelog": {"startAt": 0, "maxResults":
+        0, "total": 0, "histories": []}}, {"id": "112", "key": "ABC-112", "fields": {}, "changelog": {"startAt":
+        0, "maxResults": 0, "total": 0, "histories": []}}], "isLast": true}'
     headers:
       Content-Type:
       - application/json;charset=UTF-8
@@ -243,105 +291,7 @@ interactions:
     body: null
     headers: {}
     method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/106/changelog?startAt=0&maxResults=5
-  response:
-    body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 1, "isLast": true, "values": [{"id": "1061", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}]}'
-    headers:
-      Content-Type:
-      - application/json;charset=UTF-8
-    status:
-      code: 200
-      message: OK
-- request:
-    body: null
-    headers: {}
-    method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/107/changelog?startAt=0&maxResults=5
-  response:
-    body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 1, "isLast": true, "values": [{"id": "1071", "author": {"accountId": "557058:alice"}, "created": "2026-10-12T09:05:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}]}'
-    headers:
-      Content-Type:
-      - application/json;charset=UTF-8
-    status:
-      code: 200
-      message: OK
-- request:
-    body: null
-    headers: {}
-    method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/108/changelog?startAt=0&maxResults=5
-  response:
-    body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 1, "isLast": true, "values": [{"id": "1081", "author": {"accountId": "557058:alice"}, "created": "2026-10-14T16:00:00.000+0000", "items": [{"field": "Sprint", "fieldtype": "custom", "from": null, "fromString": null, "to": "11", "toString": null}]}]}'
-    headers:
-      Content-Type:
-      - application/json;charset=UTF-8
-    status:
-      code: 200
-      message: OK
-- request:
-    body: null
-    headers: {}
-    method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/109/changelog?startAt=0&maxResults=5
-  response:
-    body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
-    headers:
-      Content-Type:
-      - application/json;charset=UTF-8
-    status:
-      code: 200
-      message: OK
-- request:
-    body: null
-    headers: {}
-    method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/110/changelog?startAt=0&maxResults=5
-  response:
-    body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
-    headers:
-      Content-Type:
-      - application/json;charset=UTF-8
-    status:
-      code: 200
-      message: OK
-- request:
-    body: null
-    headers: {}
-    method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/111/changelog?startAt=0&maxResults=5
-  response:
-    body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
-    headers:
-      Content-Type:
-      - application/json;charset=UTF-8
-    status:
-      code: 200
-      message: OK
-- request:
-    body: null
-    headers: {}
-    method: GET
-    uri: https://acme.atlassian.net/rest/api/2/issue/112/changelog?startAt=0&maxResults=5
-  response:
-    body:
-      string: '{"self": "", "maxResults": 5, "startAt": 0, "total": 0, "isLast": true, "values": []}'
-    headers:
-      Content-Type:
-      - application/json;charset=UTF-8
-    status:
-      code: 200
-      message: OK
-- request:
-    body: null
-    headers: {}
-    method: GET
-    uri: https://acme.atlassian.net/rest/api/3/search/jql?jql=issuekey+in+%28ABC-100%29&fields=duedate
+    uri: https://acme.atlassian.net/rest/api/3/search/jql?jql=issuekey+in+%28ABC-100%29&fields=duedate&maxResults=50
   response:
     body:
       string: '{"issues": [{"id": "100", "key": "ABC-100", "fields": {"duedate": "2026-11-06"}}], "isLast": true}'

@@ -21,7 +21,7 @@ from fastmcp import Client
 from pulseboard.app import create_app, open_store
 from pulseboard.credentials import Credentials
 from pulseboard.domain.types import AuthMethod, Deployment, SiteId
-from pulseboard.settings import Limits, Settings
+from pulseboard.settings import Limits, Settings, TeamSettings
 from pulseboard.sites import Site
 from pulseboard.sources.base import BoardSource
 from pulseboard.sources.jira.client import JiraBoardSource
@@ -35,7 +35,7 @@ CASSETTE_PAGE_SIZE = 5
 FAKE_ENV = {"PULSEBOARD_ACME_EMAIL": "fixture@example.com", "PULSEBOARD_ACME_TOKEN": "x"}
 
 
-def fixture_settings(data_dir: Path) -> Settings:
+def fixture_settings(data_dir: Path, team: TeamSettings | None = None) -> Settings:
     """Settings for the fixture site."""
     site = Site(
         site_id=SiteId("acme"),
@@ -44,7 +44,10 @@ def fixture_settings(data_dir: Path) -> Settings:
         auth_method=AuthMethod.API_TOKEN,
     )
     return Settings(
-        sites=(site,), data_dir=data_dir, limits=Limits(jira_page_size=CASSETTE_PAGE_SIZE)
+        sites=(site,),
+        data_dir=data_dir,
+        team=team or TeamSettings(),
+        limits=Limits(jira_page_size=CASSETTE_PAGE_SIZE),
     )
 
 
@@ -53,9 +56,9 @@ def replaying_source(site: Site, credentials: Credentials, settings: Settings) -
     return JiraBoardSource(site, credentials, settings, cache_enabled=False)
 
 
-async def render(out: Path, data_dir: Path) -> dict[str, object]:
+async def render(out: Path, data_dir: Path, team: TeamSettings | None = None) -> dict[str, object]:
     """Run the pipeline and write the Gantt HTML to ``out``. Returns the tool results."""
-    settings = fixture_settings(data_dir)
+    settings = fixture_settings(data_dir, team)
     app = create_app(
         settings,
         store=open_store(settings),
@@ -76,8 +79,13 @@ async def render(out: Path, data_dir: Path) -> dict[str, object]:
             )
             export = rendered.structured_content or {}
             contents = await client.read_resource(str(export["uri"]))
+            stored = await client.read_resource(f"pulseboard://plans/{plan['plan_id']}")
     out.write_text(getattr(contents[0], "text", ""), encoding="utf-8")
-    return {"plan": plan, "export": export}
+    return {
+        "plan": plan,
+        "export": export,
+        "stored": json.loads(getattr(stored[0], "text", "{}")),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

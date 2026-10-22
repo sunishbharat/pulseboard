@@ -3,6 +3,10 @@
 Data flow (DESIGN §9.6): validate the link → refresh the snapshot → compute ``plan_id`` → reuse a
 stored plan or build one → store it. Sync Jira calls and the solver run in worker threads; the
 whole build runs under the tool timeout (DESIGN §12.4).
+
+A ``plan_id`` is self-contained (ADDENDUM-03 §9): follow-up answers come from the stored plan and
+the snapshots it was built from. If those snapshots are gone, or the settings changed since the
+plan was built, the plan is expired: no answer is ever computed from other inputs.
 """
 
 import hashlib
@@ -16,19 +20,43 @@ import anyio.from_thread
 import anyio.to_thread
 from cachetools import LRUCache
 
-from pulseboard.domain.plan import Plan, PlanWarning
+from pulseboard.domain.plan import Forecast, MilestoneKind, Plan, PlanWarning
 from pulseboard.domain.snapshot import BoardSnapshot
-from pulseboard.domain.types import AccountId, BoardId, IssueId, PlanId, SiteId, WarningId
-from pulseboard.engine.calendar import local_date
+from pulseboard.domain.types import (
+    AccountId,
+    BoardId,
+    IssueId,
+    PlanId,
+    SiteId,
+    SolverStatus,
+    StatusCategory,
+    WarningId,
+)
+from pulseboard.engine.calendar import calendar_from_settings, local_date
 from pulseboard.engine.effort import open_tasks
 from pulseboard.engine.flow import FlowMetrics, flow_metrics
-from pulseboard.engine.forecaster import Throughput, seed_for, weekly_throughput
-from pulseboard.engine.planner import PlanRequest, Stages, build_plan, combined_snapshot_hash
+from pulseboard.engine.forecaster import (
+    Throughput,
+    choose_primary,
+    monte_carlo_forecast,
+    seed_for,
+    weekly_throughput,
+)
+from pulseboard.engine.planner import (
+    PlanRequest,
+    Stages,
+    build_plan,
+    combined_snapshot_hash,
+    people_of,
+    schedule_forecast,
+)
 from pulseboard.engine.scheduling import Scheduler
-from pulseboard.engine.warnings import WarningContext, WarningRule, run_rules
+from pulseboard.engine.warnings import WarningContext, WarningRule, run_rules, week_label
+from pulseboard.engine.workload import WeekLoad, plan_workload
 from pulseboard.errors import (
     DURABLE_STORAGE_MESSAGE,
     BoardTooLargeError,
+    InvalidArgumentError,
     JiraUnavailableError,
     PlanExpiredError,
     ServerBusyError,
@@ -48,8 +76,21 @@ ProgressCallback = Callable[[float, float | None, str], Coroutine[object, object
 Owner = Callable[[], AccountId]
 """The calling Jira account (hosted mode); plans of other accounts are never served."""
 
+__all__ = [
+    "BuildResult",
+    "FlowMetrics",
+    "PartialResult",
+    "PlanService",
+    "Throughput",
+    "WeekLoad",
+    "settings_hash",
+    "week_label",
+]
+"""Engine result types are re-exported for interfaces, which never import the engine."""
+
 _PLAN_ID_LENGTH = 32
 _MEMO_SIZE = 32
+EXPIRED_HINT = "Call pb_build_plan again."
 
 
 @dataclass(frozen=True)
@@ -62,6 +103,8 @@ class PartialResult:
     flow: FlowMetrics
     throughput: Throughput
     keys: dict[IssueId, str]
+    reason: str
+    """Why there is no plan, and what to do next."""
 
 
 @dataclass(frozen=True)
@@ -104,6 +147,25 @@ def compute_plan_id(
     ]
     digest = hashlib.sha256("\n".join(parts).encode()).hexdigest()
     return PlanId(digest[:_PLAN_ID_LENGTH])
+
+
+def _require_schedule(stages: Stages) -> None:
+    """Refuse a plan whose open work the solver could not place: its forecast would be a guess.
+
+    Raises:
+        BoardTooLargeError: the solver proved the work cannot finish within the planning horizon.
+        ToolTimeoutError: the solver budget ran out before it found any schedule.
+    """
+    if stages.result.timings or not stages.built.tasks:
+        return
+    if stages.result.status is SolverStatus.INFEASIBLE:
+        last = stages.calendar.last_day.isoformat()
+        msg = f"The open work does not fit in the planning horizon (until {last})."
+        hint = "Use a board with a narrower filter or raise limits.planning_horizon_years."
+        raise BoardTooLargeError(msg, hint=hint)
+    msg = "The scheduler found no plan within its budget."
+    hint = "Use a board with a narrower filter or raise team.solver.deterministic_time."
+    raise ToolTimeoutError(msg, hint=hint)
 
 
 class PlanService:
@@ -180,30 +242,42 @@ class PlanService:
     # ------------------------------------------------------------ lookup
 
     def get_plan(self, plan_id: PlanId) -> Plan:
-        """A stored plan.
+        """A stored plan, built with the settings in effect now.
 
         Raises:
             PlanExpiredError: if the plan ID is unknown, was purged, or (hosted mode) belongs to
                 another account. The message is the same, so plan IDs of others reveal nothing.
+                Also if the settings changed since the plan was built: follow-up tools would
+                otherwise answer with other settings than the plan's (ADDENDUM-03 §9).
         """
         plan = self._memo.get(plan_id) if self._memo is not None else None
         if plan is None:
             plan = self._store.get_plan(plan_id)
         if plan is None or (self._owner is not None and plan.account_id != self._owner()):
             msg = "This plan is unknown or has expired."
-            raise PlanExpiredError(msg, hint="Call pb_build_plan again.")
+            raise PlanExpiredError(msg, hint=EXPIRED_HINT)
+        if plan.settings_hash != self._for_site(plan.site_id)[1]:
+            msg = "The settings changed since this plan was built."
+            raise PlanExpiredError(msg, hint=EXPIRED_HINT)
         self._remember(plan)
         return plan
 
     def snapshots_for(self, plan: Plan) -> list[BoardSnapshot]:
-        """The snapshots a plan was built from (for reports that need history)."""
+        """The snapshots a plan was built from, one per board.
+
+        Raises:
+            PlanExpiredError: a snapshot is gone (purged, or evicted in hosted mode); answering
+                without it would report empty or zero data (ADDENDUM-03 §9).
+        """
         found = []
         for board in plan.board_ids:
             snap = self._store.snapshot_by_hash(
                 plan.site_id, plan.account_id, board, plan.snapshot_hash
             )
-            if snap is not None:
-                found.append(snap)
+            if snap is None:
+                msg = "The board data this plan was built from is gone."
+                raise PlanExpiredError(msg, hint=EXPIRED_HINT)
+            found.append(snap)
         return found
 
     def _remember(self, plan: Plan) -> None:
@@ -219,6 +293,8 @@ class PlanService:
             SiteNotConfiguredError, InvalidBoardLinkError: before any network call.
             BoardTooLargeError, AuthFailedError, PermissionDeniedError, BoardNotFoundError,
             RateLimitedError: from Jira.
+            BoardTooLargeError: the open work does not fit in the planning horizon.
+            ToolTimeoutError: the solver found no schedule within its budget.
             JiraUnavailableError: Jira is unreachable and no plan is recent enough to serve.
             ToolTimeoutError: the timeout passed before any snapshot was available.
             ServerBusyError: the timeout passed while waiting for a solver slot.
@@ -258,7 +334,9 @@ class PlanService:
             request = self._plan_request(snapshot, plan_id)
 
             def solve() -> tuple[Plan, Stages]:
-                return build_plan(request, self._scheduler, self._rules)
+                plan, stages = build_plan(request, self._scheduler, self._rules)
+                _require_schedule(stages)
+                return plan, stages
 
             if self._solve_slots is None:
                 plan, _ = await anyio.to_thread.run_sync(solve, abandon_on_cancel=True)
@@ -328,6 +406,7 @@ class PlanService:
 
     def _partial(self, snapshot: BoardSnapshot) -> PartialResult:
         tz = self._settings.team.time_zone
+        timeout = self._settings.limits.tool_timeout_s
         flow = flow_metrics(
             snapshot,
             local_date(self._clock(), tz),
@@ -341,24 +420,126 @@ class PlanService:
             flow=flow,
             throughput=self.throughput([snapshot], local_date(self._clock(), tz)),
             keys={t.issue_id: t.issue_key for t in snapshot.tasks},
+            reason=(
+                f"timeout: the schedule was not ready within {timeout:g} s "
+                "(limits.tool_timeout_s); only flow metrics are returned. Call pb_build_plan "
+                "again: the board data is stored, so the next build is faster."
+            ),
         )
 
     def throughput(self, snapshots: Sequence[BoardSnapshot], plan_date: date) -> Throughput:
-        """Weekly throughput over the history window."""
+        """Weekly throughput over the history window, capped by the fetch window."""
         tasks = tuple({t.issue_id: t for s in snapshots for t in s.tasks}.values())
+        limits = (
+            self.settings_for(snapshots[0].site_id).limits if snapshots else self._settings.limits
+        )
         return weekly_throughput(
             tasks,
             plan_date,
             self._settings.team.time_zone,
-            self._settings.limits.throughput_history_weeks,
+            limits.throughput_history_weeks,
+            limits.reporting_window_days,
         )
 
     def flow(
         self, snapshot: BoardSnapshot, plan_date: date, window_days: int | None
     ) -> FlowMetrics:
         """Flow metrics for one board over a window (default: the reporting window)."""
-        window = window_days or self.settings_for(snapshot.site_id).limits.reporting_window_days
+        window = self.flow_window(snapshot.site_id, window_days)
         return flow_metrics(snapshot, plan_date, self._settings.team.time_zone, window)
+
+    def flow_window(self, site_id: SiteId, window_days: int | None) -> int:
+        """The flow window in days: the given one, or the site's reporting window.
+
+        Raises:
+            InvalidArgumentError: ``window_days`` is not positive.
+        """
+        if window_days is None:
+            return self.settings_for(site_id).limits.reporting_window_days
+        if window_days < 1:
+            msg = f"window_days must be at least 1 (got {window_days})."
+            raise InvalidArgumentError(msg, hint="Omit it for the reporting window.")
+        return window_days
+
+    def workload(
+        self, plan: Plan, account_id: str | None = None, weeks: int | None = None
+    ) -> tuple[WeekLoad, ...]:
+        """Person-week load of a plan, from the plan's settings (checked by ``get_plan``).
+
+        Raises:
+            InvalidArgumentError: ``weeks`` is not positive, or ``account_id`` has no work in
+                the plan.
+            PlanExpiredError: the plan's board data is gone.
+        """
+        if weeks is not None and weeks < 1:
+            msg = f"weeks must be at least 1 (got {weeks})."
+            raise InvalidArgumentError(msg, hint="Omit it for every week of the plan.")
+        settings = self.settings_for(plan.site_id)
+        calendar = calendar_from_settings(
+            plan.plan_date,
+            settings.team,
+            settings.limits.planning_horizon_years,
+            people_of(self.snapshots_for(plan)),
+        )
+        loads = plan_workload(plan.scheduled_tasks, calendar, settings.team.hours_per_day)
+        if account_id is not None:
+            lanes = {t.lane for t in plan.scheduled_tasks if t.lane is not None}
+            if account_id not in lanes:
+                msg = f"No work in this plan is assigned to '{account_id}'."
+                hint = "Use an account ID from pb_workload without account_id."
+                raise InvalidArgumentError(msg, hint=hint)
+            loads = tuple(w for w in loads if w.account_id == account_id)
+        if weeks is not None:
+            starts = sorted({w.week_start for w in loads})[:weeks]
+            loads = tuple(w for w in loads if w.week_start in starts)
+        return loads
+
+    def scoped_forecast(
+        self, plan: Plan, kind: MilestoneKind, scope_id: int
+    ) -> tuple[Forecast, Forecast | None]:
+        """(primary, alternative) forecast for one fix version or epic of a plan.
+
+        Raises:
+            InvalidArgumentError: no open milestone ``scope_id`` of that kind in the plan.
+            PlanExpiredError: the plan's board data is gone.
+        """
+        milestone = next(
+            (m for m in plan.milestones if m.kind is kind and m.milestone_id == scope_id), None
+        )
+        if milestone is None or milestone.forecast_date is None:
+            msg = f"No open {kind.value} {scope_id} in this plan."
+            raise InvalidArgumentError(msg, hint="See pb_milestones for IDs.")
+        snapshots = self.snapshots_for(plan)
+        settings = self.settings_for(plan.site_id)
+        linked = [
+            t
+            for s in snapshots
+            for t in s.tasks
+            if t.status_category is not StatusCategory.DONE
+            and (
+                scope_id in t.fix_version_ids
+                if kind is MilestoneKind.FIX_VERSION
+                else t.epic_issue_id == scope_id
+            )
+        ]
+        calendar = calendar_from_settings(
+            plan.plan_date,
+            settings.team,
+            settings.limits.planning_horizon_years,
+            people_of(snapshots),
+        )
+        mc = monte_carlo_forecast(
+            len(linked),
+            self.throughput(snapshots, plan.plan_date),
+            calendar,
+            trials=settings.limits.monte_carlo_trials,
+            seed=seed_for(plan.plan_id) + milestone.milestone_id,
+            min_history_weeks=settings.limits.min_history_weeks,
+        )
+        schedule = schedule_forecast(
+            milestone.forecast_date, plan.estimated_share, settings.team, solved=True
+        )
+        return choose_primary(schedule, mc, plan.estimated_share, settings.team.estimated_threshold)
 
     def today(self) -> date:
         """Today in the team time zone."""

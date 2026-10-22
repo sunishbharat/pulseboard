@@ -95,6 +95,19 @@ class MemoryStore:
         with self._lock:
             self._snapshots.pop(snapshot_id, None)
 
+    def plan_uses_snapshot(
+        self, site: SiteId, account: AccountId, board: BoardId, snapshot_hash: str
+    ) -> bool:
+        """Whether a cached plan of the caller's board was built from this snapshot."""
+        with self._lock:
+            return any(
+                p.site_id == site
+                and p.account_id == account
+                and p.board_ids == (board,)
+                and p.snapshot_hash == snapshot_hash
+                for p in self._plans.values()
+            )
+
     def has_baseline(self, site: SiteId, account: AccountId, board: BoardId, key: str) -> bool:
         """Always ``True``, so no automatic baseline is ever taken (they need durable storage)."""
         return True

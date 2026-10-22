@@ -46,6 +46,15 @@ class WarningContext:
     aging_outliers: Mapping[IssueId, float] = field(default_factory=dict)
     """In-progress issues older than the cycle-time P85, with their age in days."""
     cycle_time_p85_days: float | None = None
+    unknown_link_types: tuple[str, ...] = ()
+    """Configured dependency link types that match no link on the board(s)."""
+    link_types_seen: tuple[str, ...] = ()
+    unknown_people: tuple[str, ...] = ()
+    """Configured people or leave entries that match no one on the board(s)."""
+    points_fallback_rate: float | None = None
+    """Set when story points were converted at the fallback rate."""
+    monte_carlo_missing: bool = False
+    """No throughput to sample, so there is no Monte Carlo forecast."""
 
     def key(self, issue_id: IssueId) -> str:
         """Display key for messages (keys are Jira identifiers, never free text)."""

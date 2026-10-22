@@ -6,10 +6,6 @@ from collections.abc import Mapping, Sequence
 from pulseboard.domain.plan import Forecast, MilestoneForecast, Plan, PlanWarning
 from pulseboard.domain.snapshot import BoardSnapshot, Task
 from pulseboard.domain.types import DetailLevel, IssueId, StatusCategory
-from pulseboard.engine.flow import FlowMetrics
-from pulseboard.engine.forecaster import Throughput
-from pulseboard.engine.warnings import week_label
-from pulseboard.engine.workload import WeekLoad
 from pulseboard.mcp.models import (
     BuildPlanOut,
     CriticalTaskOut,
@@ -20,6 +16,7 @@ from pulseboard.mcp.models import (
     PlanSummaryOut,
     WarningOut,
 )
+from pulseboard.services.plan_service import FlowMetrics, Throughput, WeekLoad, week_label
 
 TOP_WARNINGS = {DetailLevel.SUMMARY: 3, DetailLevel.STANDARD: 10, DetailLevel.FULL: 25}
 TOP_MILESTONES = {DetailLevel.SUMMARY: 3, DetailLevel.STANDARD: 10, DetailLevel.FULL: 25}
@@ -68,12 +65,25 @@ def flow_summary(
     """Flow metrics in a few numbers."""
     percentiles = flow.cycle_time_percentiles
     outliers = sorted(flow.aging_outliers().items(), key=lambda item: (-item[1], item[0]))
+    notes = []
+    if not percentiles:
+        notes.append(
+            f"No cycle time: no issue went from in progress to done in the {window}-day window."
+        )
+    if not throughput.weekly:
+        notes.append("No throughput: the board has no issues yet.")
+    if throughput.capped_from is not None:
+        notes.append(
+            f"Throughput covers {throughput.weeks} weeks, capped from {throughput.capped_from} "
+            f"by the {throughput.window_days}-day history window."
+        )
     return FlowSummary(
         window_days=window,
         throughput_per_week=list(throughput.weekly),
         cycle_time_p50_days=percentiles[0] if percentiles else None,
         cycle_time_p85_days=percentiles[1] if percentiles else None,
         aging_outliers=[keys.get(i, str(i)) for i, _ in outliers[:MAX_AGING_OUTLIERS]],
+        note=" ".join(notes) or None,
     )
 
 
@@ -81,7 +91,6 @@ def build_plan_out(
     plan: Plan, keys: Mapping[IssueId, str], detail: DetailLevel, include_summaries: bool = True
 ) -> BuildPlanOut:
     """The ``pb_build_plan`` result."""
-    critical = {i for path in plan.critical_paths for i in path}
     return BuildPlanOut(
         plan_id=plan.plan_id,
         forecast_p50=plan.forecast.p50,
@@ -91,7 +100,7 @@ def build_plan_out(
         confidence_reason=plan.forecast.confidence_reason,
         solver_status=plan.solver_status,
         open_issues=len(plan.scheduled_tasks),
-        critical_issues=len(critical),
+        critical_issues=sum(1 for t in plan.scheduled_tasks if t.critical),
         warning_count=len(plan.warnings),
         top_warnings=[warning_out(w, keys) for w in plan.warnings[: TOP_WARNINGS[detail]]],
         milestones_at_risk=(
@@ -133,8 +142,7 @@ def plan_summary_out(
         forecast_p85=plan.forecast.p85,
         method=plan.forecast.method,
         confidence=plan.forecast.confidence,
-        target=last.target_date if last else None,
-        slip_days=last.slip_working_days if last else None,
+        last_milestone=milestone_out(last) if last else None,
         top_warnings=[warning_out(w, keys) for w in plan.warnings[: TOP_WARNINGS[detail]]],
         milestones_at_risk=at_risk(plan)[: TOP_MILESTONES[detail]],
     )
@@ -143,7 +151,7 @@ def plan_summary_out(
 def critical_path_out(
     plan: Plan, snapshots: Sequence[BoardSnapshot], include_summaries: bool
 ) -> list[CriticalTaskOut]:
-    """The longest critical path, in order."""
+    """The longest critical path, in order; empty if nothing is critical."""
     if not plan.critical_paths:
         return []
     scheduled = {t.issue_id: t for t in plan.scheduled_tasks}
@@ -161,6 +169,11 @@ def critical_path_out(
         )
         for i in plan.critical_paths[0]
     ]
+
+
+def critical_path_note(plan: Plan) -> str:
+    """Why the critical path is empty (used only when it is)."""
+    return "Nothing is critical: the plan has no open scheduled work."
 
 
 def load_out(load: WeekLoad) -> LoadOut:

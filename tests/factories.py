@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 from pulseboard.domain.snapshot import (
     BoardColumn,
     BoardSnapshot,
+    ExternalBlocker,
     Person,
     Sprint,
     StatusInfo,
@@ -46,7 +47,12 @@ COLUMNS = (
 def task(
     issue_id: int, *, category: StatusCategory = StatusCategory.TO_DO, **changes: object
 ) -> Task:
-    """An issue on the default board, assigned to alice, ranked by ID; ``changes`` override."""
+    """An issue on the default board, assigned to alice, ranked by ID; ``changes`` override.
+
+    The raw fields that board-wide fields are derived from follow the given ones, as the Jira
+    normalizer would set them: ``rank_value`` from ``board_rank``, and ``link_blockers`` from
+    ``blocked_by`` and ``external_blockers`` (so ``link_board`` and merges keep them).
+    """
     key = f"ABC-{issue_id}"
     fields: dict[str, object] = {
         "issue_id": IssueId(issue_id),
@@ -62,6 +68,24 @@ def task(
         "created": T0,
     }
     fields.update(changes)
+    rank = fields["board_rank"]
+    fields.setdefault("rank_value", f"{rank:010d}" if isinstance(rank, int) else "")
+    if "link_blockers" not in changes:
+        blocked = changes.get("blocked_by", ())
+        external = changes.get("external_blockers", ())
+        assert isinstance(blocked, tuple)
+        assert isinstance(external, tuple)
+        fields["link_blockers"] = (
+            *(
+                ExternalBlocker(
+                    issue_id=IssueId(b),
+                    issue_key=IssueKey(f"ABC-{b}"),
+                    status_category=StatusCategory.TO_DO,
+                )
+                for b in blocked
+            ),
+            *external,
+        )
     return Task.model_validate(fields)
 
 
@@ -85,7 +109,8 @@ def snapshot(
     people: tuple[Person, ...] = (),
     estimation_mode: EstimationMode = EstimationMode.STORY_POINTS,
 ) -> BoardSnapshot:
-    """A board snapshot with the default columns and statuses."""
+    """A board snapshot with the default columns and statuses. Its tasks' dependencies are
+    "Blocks" links, as on a Jira board with the default settings."""
     return BoardSnapshot(
         site_id=SiteId("acme"),
         board_id=BoardId(42),
@@ -101,6 +126,7 @@ def snapshot(
         tasks=tasks,
         transitions=transitions,
         fetched_at=T0,
+        link_types=("Blocks",) if any(t.link_blockers for t in tasks) else (),
     )
 
 

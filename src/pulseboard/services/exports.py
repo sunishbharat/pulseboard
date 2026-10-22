@@ -7,7 +7,7 @@ and format, never from board names or any Jira text (DESIGN §12.3).
 
 import hashlib
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -15,8 +15,16 @@ from pathlib import Path
 from typing import Protocol
 
 from pulseboard.domain.plan import ExportRecord
-from pulseboard.domain.types import AccountId, ExportFormat, ExportId, PlanId, ReportId
-from pulseboard.errors import BoardNotFoundError, PlanExpiredError
+from pulseboard.domain.snapshot import BoardSnapshot
+from pulseboard.domain.types import (
+    AccountId,
+    ExportFormat,
+    ExportId,
+    IssueId,
+    PlanId,
+    ReportId,
+)
+from pulseboard.errors import BoardNotFoundError, InvalidArgumentError, PlanExpiredError
 from pulseboard.exports.base import Exporter, ExportOptions, PlotlyLibrary
 from pulseboard.reports.base import (
     ChartOptions,
@@ -33,6 +41,8 @@ from pulseboard.store.protocol import Store
 RESOURCE_PREFIX = "pulseboard://exports/"
 _EXPORT_ID_BYTES = 16
 _OWNER_HASH_LENGTH = 16
+_EPICS_LISTED = 10
+"""Epic keys named in the hint when an epic filter matches nothing."""
 
 
 class Theme(StrEnum):
@@ -51,9 +61,39 @@ class RenderOptions:
     color_by: ColorBy = ColorBy.TYPE
     theme: Theme = Theme.AUTO
     library: PlotlyLibrary = PlotlyLibrary.INLINE
+    expand: bool = False
+    """Gantt: show every task row; otherwise plans of more than 150 tasks start collapsed."""
+    epics: tuple[str, ...] = ()
+    """Gantt: show only these epics, by issue key or ID (Addendum 02 §6.6); empty shows all."""
 
 
 DEFAULT_RENDER = RenderOptions()
+
+
+def resolve_epics(names: Sequence[str], snapshots: Sequence[BoardSnapshot]) -> tuple[IssueId, ...]:
+    """Epic issue IDs for keys (trimmed, case-insensitive) or numeric IDs of the plan's epics.
+
+    Raises:
+        InvalidArgumentError: a name matches no epic in the plan.
+    """
+    known = {e.issue_key.strip().casefold(): e.issue_id for s in snapshots for e in s.epics}
+    ids = {e.issue_id for s in snapshots for e in s.epics} | {
+        t.epic_issue_id for s in snapshots for t in s.tasks if t.epic_issue_id is not None
+    }
+    resolved: set[IssueId] = set()
+    for name in names:
+        text = name.strip()
+        epic = known.get(text.casefold())
+        if epic is None and text.isascii() and text.isdigit() and IssueId(int(text)) in ids:
+            epic = IssueId(int(text))
+        if epic is None:
+            keys = sorted({e.issue_key for s in snapshots for e in s.epics})
+            listed = ", ".join(keys[:_EPICS_LISTED]) + (" …" if len(keys) > _EPICS_LISTED else "")
+            msg = f"No epic '{text}' in this plan."
+            hint = f"Epics on the board: {listed}." if keys else "The board has no epics."
+            raise InvalidArgumentError(msg, hint=hint)
+        resolved.add(epic)
+    return tuple(sorted(resolved))
 
 
 @dataclass(frozen=True)
@@ -162,6 +202,8 @@ class ExportService:
         Raises:
             PlanExpiredError: unknown or purged plan.
             BoardNotFoundError: no such report or format in this installation.
+            InvalidArgumentError: an epic filter on another report than the Gantt, or an
+                epic that is not in the plan.
         """
         report = self._reports.get(report_id)
         exporter = self._exporters.get(export_format)
@@ -169,14 +211,24 @@ class ExportService:
             missing = f"report '{report_id}'" if report is None else f"format '{export_format}'"
             msg = f"No {missing} is available."
             raise BoardNotFoundError(msg, hint="Use a v1.0 report and html, xlsx, csv or json.")
+        if options.epics and report_id is not ReportId.GANTT:
+            msg = f"epics filters the gantt report only, not '{report_id}'."
+            raise InvalidArgumentError(msg, hint="Use report_id='gantt' or leave epics out.")
         plan = self._plans.get_plan(plan_id)
         snapshots, settings = (
             self._plans.snapshots_for(plan),
             self._plans.settings_for(plan.site_id),
         )
+        epics = resolve_epics(options.epics, snapshots)
 
         def build(theme: ThemeMode) -> ReportResult:
-            chart = ChartOptions(theme=theme, group_by=options.group_by, color_by=options.color_by)
+            chart = ChartOptions(
+                theme=theme,
+                group_by=options.group_by,
+                color_by=options.color_by,
+                collapsed=False if options.expand else None,
+                epics=epics,
+            )
             return report.build(build_context(plan, snapshots, settings, chart))
 
         follows_viewer = options.theme is Theme.AUTO and export_format is ExportFormat.HTML

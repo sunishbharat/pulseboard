@@ -7,6 +7,7 @@ import pytest
 from factories import snapshot, task
 from fakes import Clock, FakeSource, T
 from pulseboard.credentials import Credentials
+from pulseboard.domain.plan import Plan
 from pulseboard.domain.snapshot import Sprint, StatusTransition
 from pulseboard.domain.types import (
     AccountId,
@@ -82,6 +83,25 @@ def test_every_nth_refresh_is_a_full_reload(store: SnapshotStore) -> None:
         clock.now += timedelta(minutes=3)
 
     assert kinds == [True, False, True, False, False, True]
+
+
+def test_changed_source_settings_force_a_full_reload(store: SnapshotStore) -> None:
+    """A snapshot built with other link types is stale as a whole: not served, not merged."""
+    clock, source = Clock(), FakeSource([snapshot((task(1),))], key="blocks")
+    r = refresher(store, clock)
+    r.refresh(source, SITE, BOARD)
+
+    source.key = "blocks+dependency"
+    clock.now += timedelta(seconds=10)  # within the refresh interval
+    changed = r.refresh(source, SITE, BOARD)
+    clock.now += timedelta(minutes=3)
+    after = r.refresh(source, SITE, BOARD)
+
+    assert changed.fetched
+    assert changed.full_reload
+    assert source.calls[1].updated_since is None
+    assert changed.snapshot.settings_key == "blocks+dependency"
+    assert not after.full_reload  # same settings again: incremental as usual
 
 
 def test_superseded_incremental_snapshots_are_removed(store: SnapshotStore) -> None:
@@ -167,3 +187,93 @@ def test_real_source_repeat_within_interval_makes_no_requests(
 
     assert len(first.snapshot.tasks) == 12
     assert not second.fetched
+
+
+@pytest.mark.parametrize(
+    ("window_days", "full"),
+    [(29, False), (30, False), (31, True), (90, True)],
+)
+def test_an_earlier_history_window_forces_a_full_reload(
+    store: SnapshotStore, window_days: int, full: bool
+) -> None:
+    """PB-07: a snapshot fetched for 30 days of history cannot answer for a longer window,
+    even within the refresh interval; a shorter one it covers is served as usual."""
+    clock, source = Clock(), FakeSource([snapshot((task(1),))])
+    first = refresher(store, clock, reporting_window_days=30).refresh(source, SITE, BOARD)
+    clock.now += timedelta(seconds=1)
+
+    again = refresher(store, clock, reporting_window_days=window_days).refresh(source, SITE, BOARD)
+
+    assert first.snapshot.window_start == date(2026, 9, 19)  # plan day in Berlin − 30 days
+    assert again.fetched is full
+    assert again.full_reload is full
+    if full:
+        assert source.calls[1].updated_since is None
+        assert again.snapshot.window_start == date(2026, 10, 19) - timedelta(days=window_days)
+
+
+def test_an_incremental_merge_keeps_the_window_it_extends(store: SnapshotStore) -> None:
+    clock, source = Clock(), FakeSource([snapshot((task(1),))])
+    r = refresher(store, clock, reporting_window_days=30)
+    r.refresh(source, SITE, BOARD)
+    clock.now += timedelta(days=1)
+
+    later = r.refresh(source, SITE, BOARD)
+
+    assert not later.full_reload
+    assert later.snapshot.window_start == date(2026, 9, 19)  # not the day-later window
+
+
+def plan_on(snapshot_hash: str) -> Plan:
+    """A minimal stored plan of the test board, built from ``snapshot_hash``."""
+    forecast = {
+        "method": "schedule",
+        "p50": "2026-10-19",
+        "p85": "2026-10-19",
+        "p95": "2026-10-19",
+        "confidence": "high",
+        "confidence_reason": "test",
+    }
+    return Plan.model_validate(
+        {
+            "plan_id": "p1",
+            "site_id": SITE,
+            "board_ids": (BOARD,),
+            "account_id": "acc-1",
+            "plan_date": date(2026, 10, 19),
+            "team_time_zone": "UTC",
+            "engine_version": "0.1.0",
+            "settings_hash": "s",
+            "snapshot_hash": snapshot_hash,
+            "scheduled_tasks": (),
+            "dependency_edges": (),
+            "critical_paths": (),
+            "forecast": forecast,
+            "milestones": (),
+            "warnings": (),
+            "solver_status": "optimal",
+            "generated_at": T,
+        },
+        strict=False,
+    )
+
+
+@pytest.mark.parametrize("planned", [True, False])
+def test_an_incremental_snapshot_a_plan_uses_is_kept(store: SnapshotStore, planned: bool) -> None:
+    """PB-04: a superseded merge is deleted only when no stored plan was built from it."""
+    clock = Clock()
+    board = snapshot((task(1),), board_type=BoardType.KANBAN)
+    source = FakeSource([board, snapshot((task(1), task(2)), board_type=BoardType.KANBAN)])
+    r = refresher(store, clock)
+    r.refresh(source, SITE, BOARD)  # snapshot 1: full reload, kept
+    clock.now += timedelta(minutes=3)
+    merged = r.refresh(source, SITE, BOARD).snapshot  # snapshot 2: incremental merge
+    if planned:
+        store.save_plan(plan_on(merged.snapshot_hash))
+    clock.now += timedelta(minutes=3)
+    r.refresh(source, SITE, BOARD)  # snapshot 3 supersedes 2
+
+    assert (store.get_snapshot(2) is not None) is planned
+    assert store.plan_uses_snapshot(SITE, AccountId("acc-1"), BOARD, merged.snapshot_hash) is (
+        planned
+    )
