@@ -28,6 +28,7 @@ dist/
 
 *.toml
 !pyproject.toml
+!examples/pulseboard.example.toml
 *.html
 
 # Environments

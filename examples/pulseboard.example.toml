@@ -1,0 +1,93 @@
+# Pulseboard settings (example). `pulseboard site add` creates and edits this file for you.
+#
+# Pulseboard reads one file, first match wins:
+#   1. --config <path>    2. $PULSEBOARD_CONFIG    3. pulseboard.toml in the per-user
+#   configuration folder (`pulseboard config path` shows which file is in use and why).
+#
+# Credentials never go in this file; a file with token, password, secret, api_key or pat
+# fields is rejected. Store them in the OS keychain (service "pulseboard", entries
+# "<id>:email" and "<id>:token") or set PULSEBOARD_<ID>_EMAIL / PULSEBOARD_<ID>_TOKEN, with
+# the ID upper-cased and hyphens as underscores (see .env.example).
+#
+# Any other value can be overridden by an environment variable:
+#   PULSEBOARD_<SECTION>__<FIELD>, for example PULSEBOARD_TEAM__TIME_ZONE=Asia/Tokyo
+
+# Board links are accepted only for these sites. No sites = no remote calls.
+[[sites]]
+id = "acme-cloud"                           # 2-32 chars: lowercase letters, digits, hyphens
+base_url = "https://acme.atlassian.net"
+deployment = "cloud"                        # cloud | datacenter (Server counts as datacenter)
+auth = "api_token"                          # cloud: api_token; datacenter: pat | anonymous
+
+[[sites]]
+id = "corp-dc"
+base_url = "https://jira.corp.example/jira" # include the context path, if any
+deployment = "datacenter"
+auth = "pat"
+# allow_http = true                         # lab Data Center only; logged as a warning
+
+# A public instance, read anonymously. Anonymous sites always use the polite profile
+# (1 request/s, one at a time, 500 open issues, 30-day history, robots.txt respected) and
+# need a contact for the User-Agent. Use public instances only for occasional manual checks
+# and only if the operator's rules allow it (docs/guides/validation.md).
+[[sites]]
+id = "asf"
+base_url = "https://issues.apache.org/jira"
+deployment = "datacenter"
+auth = "anonymous"
+profile = "polite"
+contact = "you@example.com"                 # URL or email added to the User-Agent
+# operator_permission = "INFRA-12345"       # written permission from the operator, if any
+
+[team]
+time_zone = "Europe/Berlin"                 # IANA name; "today" is the plan date here
+default_holiday_country = "DE"              # ISO 3166-1 alpha-2
+hours_per_day = 8.0
+default_capacity = 1.0                      # share of full time, 0 < x <= 1
+default_effort_hours = 8.0                  # for unestimated issues (warning W003)
+estimated_threshold = 0.6                   # below this, Monte Carlo is primary
+unassigned_policy = "separate_lane"         # separate_lane | auto_assign
+priority_mode = "board_order"               # board_order | optimized
+# Link types scheduled as dependencies. Names match Jira's trimmed and case-insensitively.
+# "Blocks" blocks from its inward end ("is blocked by"); any other type must say which end's
+# issue has to finish first, for example a type whose outward text is "depends on":
+#   dependency_link_types = ["Blocks", {name = "Dependency", blocker = "outward"}]
+dependency_link_types = ["Blocks"]
+include_subtasks = true
+extra_non_working_dates = [2026-12-24, 2026-12-31]
+
+[team.points]
+mode = "velocity"                           # velocity (last N closed sprints) | fixed
+velocity_sprints = 3
+# fixed_points_per_day = 1.5                # required when mode = "fixed"
+
+[team.solver]
+deterministic_time = 1.0                    # CP-SAT deterministic work budget
+wallclock_cap_s = 60.0                      # safety cap only (warning W012)
+seed = 0
+
+# People are named by Jira account ID (Cloud) or user key or username (Data Center). An entry
+# that matches no one on the board raises warning W016.
+[[team.people]]
+account_id = "5b10ac8d82e05b22cc7d4ef5"
+capacity = 0.5
+holiday_country = "FR"
+
+[[team.leave]]
+account_id = "5b10ac8d82e05b22cc7d4ef5"
+start = 2026-11-02
+end = 2026-11-06
+
+[limits]
+max_open_issues = 2000
+tool_timeout_s = 120.0
+refresh_interval_s = 120.0
+stale_plan_max_hours = 24.0
+reporting_window_days = 90                  # resolution history fetched (polite: at most 30)
+throughput_history_weeks = 12               # capped at reporting_window_days // 7
+page_size = 20
+
+[retention]
+snapshots_days = 365
+plans_days = 30
+exports_days = 7
